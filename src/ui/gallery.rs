@@ -1,10 +1,11 @@
 use crate::{
     image::{ImageEntry, SMALL_FILE_BYTES, format_bytes, generate_thumbnail},
     path::{group_segments, label_for},
+    ui::actions,
 };
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListState, ObjectFit,
-    ScrollWheelEvent, SharedString, Window, actions, div, img, list, prelude::*, px,
+    ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _,
@@ -23,11 +24,6 @@ use std::collections::{HashSet, VecDeque};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-actions!(
-    gallery,
-    [Quit, Prev, Next, CloseLightbox, ZoomIn, ZoomOut, ZoomReset]
-);
 
 const TILE_MIN: f32 = 200.0;
 const GRID_GAP: f32 = 12.0;
@@ -364,27 +360,27 @@ impl Gallery {
         cx.notify();
     }
 
-    fn on_prev(&mut self, _: &Prev, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
         self.step(-1, cx);
     }
 
-    fn on_next(&mut self, _: &Next, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_next(&mut self, _: &actions::Next, _: &mut Window, cx: &mut Context<Self>) {
         self.step(1, cx);
     }
 
-    fn on_close(&mut self, _: &CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {
         self.close(cx);
     }
 
-    fn on_zoom_in(&mut self, _: &ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_zoom_in(&mut self, _: &actions::ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
         self.zoom_grid_in(cx);
     }
 
-    fn on_zoom_out(&mut self, _: &ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_zoom_out(&mut self, _: &actions::ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
         self.zoom_grid_out(cx);
     }
 
-    fn on_zoom_reset(&mut self, _: &ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_zoom_reset(&mut self, _: &actions::ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
         self.column_override = None;
         cx.notify();
     }
