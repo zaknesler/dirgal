@@ -1,4 +1,7 @@
-use crate::image::{ImageEntry, format_bytes};
+use crate::{
+    image::{ImageEntry, SMALL_FILE_BYTES, format_bytes, generate_thumbnail},
+    path::{group_segments, label_for},
+};
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListState, ObjectFit,
     ScrollWheelEvent, SharedString, Window, actions, div, img, list, prelude::*, px,
@@ -11,12 +14,15 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     scroll::Scrollbar,
     separator::Separator,
+    skeleton::Skeleton,
+    spinner::Spinner,
     tag::Tag,
     v_flex,
 };
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 actions!(
     gallery,
@@ -27,9 +33,8 @@ const TILE_MIN: f32 = 200.0;
 const GRID_GAP: f32 = 12.0;
 const GRID_H_PADDING: f32 = 32.0;
 
-fn accent() -> gpui::Rgba {
-    gpui::rgb(0xca3500)
-}
+const COLOR_ACCENT: u32 = 0xca3500;
+const COLOR_BACKDROP: u32 = 0x0a0a0af0;
 
 type ImageIndex = usize;
 type VisiblePos = usize;
@@ -45,6 +50,27 @@ struct Group {
     range: Range<VisiblePos>,
 }
 
+#[derive(Clone, Copy)]
+struct Job {
+    index: ImageIndex,
+    priority: JobPriority,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum JobPriority {
+    Urgent,
+    Deferred,
+}
+
+#[derive(Clone)]
+enum ThumbState {
+    Unknown,
+    Queued,
+    Generating,
+    Ready(Arc<Path>),
+    Failed,
+}
+
 pub struct Gallery {
     roots: Vec<PathBuf>,
     images: Vec<ImageEntry>,
@@ -54,6 +80,10 @@ pub struct Gallery {
     columns: usize,
     tile_size: f32,
     grid: ListState,
+    thumbs: Vec<ThumbState>,
+    queue: VecDeque<Job>,
+    running: usize,
+    concurrency: usize,
     viewer: Option<ImageIndex>,
     collapsed_groups: HashSet<usize>,
     column_override: Option<usize>,
@@ -77,6 +107,22 @@ impl Gallery {
         roots: Vec<PathBuf>,
         images: Vec<ImageEntry>,
     ) -> Self {
+        let n = images.len();
+        let thumbs = vec![ThumbState::Unknown; n];
+        let queue: VecDeque<Job> = images
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.bytes >= SMALL_FILE_BYTES)
+            .map(|(index, _)| Job {
+                index,
+                priority: JobPriority::Deferred,
+            })
+            .collect();
+        let concurrency = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8);
+
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search..."));
 
         let focus_handle = cx.focus_handle();
@@ -85,13 +131,17 @@ impl Gallery {
         cx.subscribe_in(&input, window, Self::on_input_event)
             .detach();
 
-        let this = Self {
+        let mut this = Self {
             roots,
             images,
             visible: Vec::new(),
             groups: Vec::new(),
+            thumbs,
+            queue,
+            concurrency,
             input,
             focus_handle,
+            running: 0,
             columns: 0,
             rows: Vec::new(),
             tile_size: TILE_MIN,
@@ -101,6 +151,7 @@ impl Gallery {
             column_override: None,
         };
 
+        this.process_jobs(cx);
         this
     }
 
@@ -146,51 +197,83 @@ impl Gallery {
         groups
     }
 
-    /// The deepest root that contains `path`, if any
-    fn matching_root<'a>(roots: &'a [PathBuf], path: &Path) -> Option<&'a PathBuf> {
-        roots
-            .iter()
-            .filter(|r| path.starts_with(r))
-            .max_by_key(|r| r.as_os_str().len())
+    fn tile_source(&mut self, index: usize, cx: &mut Context<Self>) -> Option<Arc<Path>> {
+        match &self.thumbs[index] {
+            ThumbState::Ready(p) => Some(p.clone()),
+            ThumbState::Failed => Some(self.images[index].path.clone()),
+            ThumbState::Queued | ThumbState::Generating => None,
+            ThumbState::Unknown => {
+                let entry = self.images[index].clone();
+                if entry.bytes < SMALL_FILE_BYTES {
+                    self.thumbs[index] = ThumbState::Ready(entry.path.clone());
+                    Some(entry.path)
+                } else if entry.thumb.exists() {
+                    self.thumbs[index] = ThumbState::Ready(entry.thumb.clone());
+                    Some(entry.thumb)
+                } else {
+                    self.thumbs[index] = ThumbState::Queued;
+                    self.queue.push_front(Job {
+                        index,
+                        priority: JobPriority::Urgent,
+                    });
+                    self.process_jobs(cx);
+                    None
+                }
+            }
+        }
     }
 
-    fn group_segments(roots: &[PathBuf], parent: &Path) -> Vec<SharedString> {
-        let Some(root) = Self::matching_root(roots, parent) else {
-            return parent
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy().into())
-                .collect();
-        };
-
-        let rel = parent.strip_prefix(root).unwrap_or(parent);
-        let root_name = root
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| root.display().to_string());
-
-        let mut segments = Vec::new();
-        if roots.len() > 1 {
-            segments.push(root_name.into());
+    /// Pops the next ready-to-generate index, skipping stale entries
+    fn next_job(&mut self) -> Option<usize> {
+        loop {
+            let Job { index, priority } = self.queue.pop_front()?;
+            let live = match priority {
+                JobPriority::Urgent => matches!(self.thumbs[index], ThumbState::Queued),
+                JobPriority::Deferred => matches!(self.thumbs[index], ThumbState::Unknown),
+            };
+            if live {
+                return Some(index);
+            }
         }
-        segments.extend(
-            rel.components()
-                .map(|c| c.as_os_str().to_string_lossy().into()),
-        );
-
-        if segments.is_empty() {
-            segments.push("(root)".into());
-        }
-
-        segments
     }
 
-    fn label_for(&self, path: &Path) -> SharedString {
-        let rel = match Self::matching_root(&self.roots, path) {
-            Some(root) => path.strip_prefix(root).unwrap_or(path),
-            None => path,
-        };
+    fn process_jobs(&mut self, cx: &mut Context<Self>) {
+        while self.running < self.concurrency {
+            let Some(index) = self.next_job() else { return };
 
-        rel.to_string_lossy().into_owned().into()
+            self.thumbs[index] = ThumbState::Generating;
+            self.running += 1;
+            let src = self.images[index].path.clone();
+            let dst = self.images[index].thumb.clone();
+
+            cx.spawn(async move |this, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { generate_thumbnail(&src, &dst).await })
+                    .await;
+
+                this.update(cx, |gallery, cx| {
+                    gallery.running -= 1;
+                    gallery.thumbs[index] = match result {
+                        Ok(()) => ThumbState::Ready(gallery.images[index].thumb.clone()),
+                        Err(e) => {
+                            tracing::warn!(
+                                path = %gallery.images[index].path.display(),
+                                error = %e,
+                                "thumbnail generation failed"
+                            );
+                            ThumbState::Failed
+                        }
+                    };
+
+                    gallery.process_jobs(cx);
+
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
     }
 
     fn grid_layout(&self, window: &Window) -> (usize, f32) {
@@ -230,6 +313,17 @@ impl Gallery {
         self.grid = ListState::new(self.rows.len(), ListAlignment::Top, px(600.));
     }
 
+    fn deprioritize(&mut self) {
+        for job in &self.queue {
+            if job.priority == JobPriority::Urgent {
+                if matches!(self.thumbs[job.index], ThumbState::Queued) {
+                    self.thumbs[job.index] = ThumbState::Unknown;
+                }
+            }
+        }
+        self.queue.retain(|j| j.priority == JobPriority::Deferred);
+    }
+
     fn open(&mut self, index: usize, cx: &mut Context<Self>) {
         self.show(index, cx);
     }
@@ -238,6 +332,7 @@ impl Gallery {
     fn show(&mut self, index: usize, cx: &mut Context<Self>) {
         self.viewer = Some(index);
 
+        self.deprioritize();
         cx.notify();
     }
 
@@ -331,7 +426,7 @@ impl Gallery {
         match row {
             Row::Header(group_index) => {
                 let group = &self.groups[group_index];
-                let segments = Self::group_segments(&self.roots, &group.path);
+                let segments = group_segments(&self.roots, &group.path);
                 let count = group.range.len();
                 let is_collapsed = self.collapsed_groups.contains(&group_index);
 
@@ -381,7 +476,7 @@ impl Gallery {
     }
 
     fn render_thumb(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
-        let path = self.images[index].path.clone();
+        let source = self.tile_source(index, cx);
         let tile = px(self.tile_size);
 
         div()
@@ -393,16 +488,30 @@ impl Gallery {
             .overflow_hidden()
             .border_1()
             .border_color(cx.theme().border)
-            .hover(|s| s.border_color(accent()))
+            .hover(|s| s.border_color(gpui::rgb(COLOR_ACCENT)))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| this.open(index, cx)))
-            .child(
-                img(path)
-                    .size_full()
-                    .rounded_md()
-                    .overflow_hidden()
-                    .object_fit(ObjectFit::Cover),
-            )
+            .map(|tile| match source {
+                Some(path) => tile.child(
+                    img(path)
+                        .size_full()
+                        .rounded_md()
+                        .overflow_hidden()
+                        .object_fit(ObjectFit::Cover),
+                ),
+                None => tile
+                    .relative()
+                    .child(Skeleton::new().secondary().w_full().h_full())
+                    .child(
+                        v_flex()
+                            .size_full()
+                            .absolute()
+                            .inset_0()
+                            .items_center()
+                            .justify_center()
+                            .child(Spinner::new().large()),
+                    ),
+            })
             .into_any_element()
     }
 
@@ -507,7 +616,7 @@ impl Gallery {
 
     fn render_info_bar(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = &self.images[index];
-        let name = self.label_for(&entry.path);
+        let name = label_for(&self.roots, &entry.path);
         let bytes = format_bytes(entry.bytes);
 
         // Counter position/total are relative to the filtered view
@@ -571,28 +680,14 @@ impl Gallery {
         )
     }
 
-    fn render_image_area(&self, index: usize, _: &mut Context<Self>) -> impl IntoElement {
+    fn render_lightbox_content(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let path = self.images[index].path.clone();
 
-        div()
-            .id("image-area")
-            .relative()
-            .flex_1()
-            .min_h_0()
-            .size_full()
-            .overflow_hidden()
-            .child(
-                div().size_full().relative().child(
-                    img(path)
-                        .id("lightbox-image")
-                        .absolute()
-                        .size_full()
-                        .object_fit(ObjectFit::Contain),
-                ),
-            )
-    }
+        let thumb = match &self.thumbs[index] {
+            ThumbState::Ready(p) if *p != path => Some(p.clone()),
+            _ => None,
+        };
 
-    fn render_lightbox(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let prev_button = |cx: &mut Context<'_, Self>| {
             Button::new("prev-arrow")
                 .ghost()
@@ -619,26 +714,57 @@ impl Gallery {
                 }))
         };
 
-        let content = |cx: &mut Context<'_, Self>| {
-            h_flex()
+        let image = || {
+            div()
+                .id("image-area")
+                .relative()
                 .flex_1()
+                .min_h_0()
                 .size_full()
-                .min_w_0()
-                .pt_4()
-                .px_4()
-                .gap_4()
-                .child(prev_button(cx))
-                .child(self.render_image_area(index, cx))
-                .child(next_button(cx))
+                .overflow_hidden()
+                .child(
+                    div()
+                        .size_full()
+                        .relative()
+                        .when_some(thumb, |el, thumb_path| {
+                            el.child(
+                                img(thumb_path)
+                                    .id("lightbox-thumb")
+                                    .absolute()
+                                    .size_full()
+                                    .object_fit(ObjectFit::Contain),
+                            )
+                        })
+                        .child(
+                            img(path)
+                                .id("lightbox-image")
+                                .absolute()
+                                .size_full()
+                                .object_fit(ObjectFit::Contain),
+                        ),
+                )
         };
 
+        h_flex()
+            .flex_1()
+            .size_full()
+            .min_w_0()
+            .pt_4()
+            .px_4()
+            .gap_4()
+            .child(prev_button(cx))
+            .child(image())
+            .child(next_button(cx))
+    }
+
+    fn render_lightbox(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .id("lightbox")
             .absolute()
             .inset_0()
             .items_center()
             .justify_center()
-            .bg(gpui::rgba(0x0a0a0af0))
+            .bg(gpui::rgba(COLOR_BACKDROP))
             .on_click(cx.listener(|this, _, _, cx| {
                 cx.stop_propagation();
                 this.close(cx);
@@ -647,7 +773,7 @@ impl Gallery {
                 cx.stop_propagation();
             }))
             .cursor_default()
-            .child(content(cx))
+            .child(self.render_lightbox_content(index, cx))
             .child(self.render_info_bar(index, cx))
     }
 

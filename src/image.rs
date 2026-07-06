@@ -52,18 +52,21 @@ pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
     found.sort_by(|a, b| {
         (a.path.parent(), a.path.file_name()).cmp(&(b.path.parent(), b.path.file_name()))
     });
+
     tracing::debug!(count = found.len(), "found image files");
+
     found
         .into_iter()
         .map(|f| build_entry(f, thumb_dir))
         .collect()
 }
 
-fn walk_images(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
+fn walk_images(root: &Path) -> Vec<ignore::DirEntry> {
     WalkBuilder::new(root)
         .build()
         .flatten()
         .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()) && is_image(e.path()))
+        .collect()
 }
 
 fn is_image(path: &Path) -> bool {

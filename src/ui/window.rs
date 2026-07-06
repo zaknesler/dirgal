@@ -1,10 +1,7 @@
 use std::path::PathBuf;
 
 use crate::ui::gallery::{CloseLightbox, Gallery, Next, Prev, Quit, ZoomIn, ZoomOut, ZoomReset};
-use gpui::{
-    App, AppContext as _, Bounds, KeyBinding, SharedString, TitlebarOptions, WindowBounds,
-    WindowOptions, px, size,
-};
+use gpui::{App, AppContext as _, KeyBinding, SharedString, TitlebarOptions, WindowOptions};
 use gpui_component::Root;
 
 #[tracing::instrument(skip_all, fields(images = images.len()))]
@@ -14,6 +11,7 @@ pub fn create_window(roots: Vec<PathBuf>, images: Vec<crate::image::ImageEntry>)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
             gpui_component::theme::Theme::change(gpui_component::theme::ThemeMode::Dark, None, cx);
+
             cx.activate(true);
 
             cx.on_action(|_: &Quit, cx| cx.quit());
@@ -28,13 +26,11 @@ pub fn create_window(roots: Vec<PathBuf>, images: Vec<crate::image::ImageEntry>)
                 KeyBinding::new("0", ZoomReset, Some("Gallery")),
             ]);
 
-            let bounds = Bounds::centered(None, size(px(1920.), px(1080.)), cx);
             let options = WindowOptions {
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from("Gallery")),
                     ..Default::default()
                 }),
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             };
 
