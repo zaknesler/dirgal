@@ -11,6 +11,8 @@ use ignore::WalkBuilder;
 use seahash::SeaHasher;
 
 pub const THUMB_PX: u32 = 336;
+
+/// Number of bytes a source image must be to not warrant a thumbnail
 pub const SMALL_FILE_BYTES: u64 = 32 * 1024;
 
 #[derive(Clone)]

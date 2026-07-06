@@ -33,6 +33,7 @@ const COLOR_ACCENT: u32 = 0xca3500;
 const COLOR_BACKDROP: u32 = 0x0a0a0af0;
 
 type ImageIndex = usize;
+type GroupIndex = usize;
 type VisiblePos = usize;
 
 #[derive(Clone)]
@@ -70,10 +71,10 @@ enum ThumbState {
 pub struct Gallery {
     roots: Vec<PathBuf>,
     images: Vec<ImageEntry>,
-    visible: Vec<ImageIndex>,
+    filtered_images: Vec<ImageIndex>,
     groups: Vec<Group>,
     rows: Vec<Row>,
-    columns: usize,
+    num_columns: usize,
     tile_size: f32,
     grid: ListState,
     thumbs: Vec<ThumbState>,
@@ -81,7 +82,7 @@ pub struct Gallery {
     running: usize,
     concurrency: usize,
     viewer: Option<ImageIndex>,
-    collapsed_groups: HashSet<usize>,
+    collapsed_groups: HashSet<GroupIndex>,
     column_override: Option<usize>,
     focus_handle: FocusHandle,
     input: Entity<InputState>,
@@ -130,7 +131,7 @@ impl Gallery {
         let mut this = Self {
             roots,
             images,
-            visible: Vec::new(),
+            filtered_images: Vec::new(),
             groups: Vec::new(),
             thumbs,
             queue,
@@ -138,7 +139,7 @@ impl Gallery {
             input,
             focus_handle,
             running: 0,
-            columns: 0,
+            num_columns: 0,
             rows: Vec::new(),
             tile_size: TILE_MIN,
             grid: ListState::new(0, ListAlignment::Top, px(0.)),
@@ -152,7 +153,7 @@ impl Gallery {
     }
 
     fn visible_position(&self, index: ImageIndex) -> Option<VisiblePos> {
-        self.visible.iter().position(|&i| i == index)
+        self.filtered_images.iter().position(|&i| i == index)
     }
 
     fn compute_visible(images: &[ImageEntry], query: &str) -> Vec<ImageIndex> {
@@ -285,12 +286,12 @@ impl Gallery {
     }
 
     fn reflow(&mut self, columns: usize, tile_size: f32, cx: &mut Context<Self>) {
-        self.columns = columns;
+        self.num_columns = columns;
         self.tile_size = tile_size;
 
         let query = self.input.read(cx).value();
-        self.visible = Self::compute_visible(&self.images, &query);
-        self.groups = Self::compute_groups(&self.images, &self.visible);
+        self.filtered_images = Self::compute_visible(&self.images, &query);
+        self.groups = Self::compute_groups(&self.images, &self.filtered_images);
 
         self.rows.clear();
         for (group_index, group) in self.groups.iter().enumerate() {
@@ -339,23 +340,23 @@ impl Gallery {
     }
 
     fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
-        if self.visible.is_empty() {
+        if self.filtered_images.is_empty() {
             return;
         }
         let Some(current) = self.viewer else { return };
 
         let pos = self.visible_position(current).unwrap_or(0) as isize;
-        let len = self.visible.len() as isize;
-        let next = self.visible[(pos + delta).rem_euclid(len) as usize];
+        let len = self.filtered_images.len() as isize;
+        let next = self.filtered_images[(pos + delta).rem_euclid(len) as usize];
         self.show(next, cx);
     }
 
-    fn toggle_group(&mut self, group_index: usize, cx: &mut Context<Self>) {
+    fn toggle_group(&mut self, group_index: GroupIndex, cx: &mut Context<Self>) {
         if !self.collapsed_groups.remove(&group_index) {
             self.collapsed_groups.insert(group_index);
         }
 
-        self.reflow(self.columns, self.tile_size, cx);
+        self.reflow(self.num_columns, self.tile_size, cx);
 
         cx.notify();
     }
@@ -386,14 +387,14 @@ impl Gallery {
     }
 
     fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
-        let current = self.column_override.unwrap_or(self.columns);
+        let current = self.column_override.unwrap_or(self.num_columns);
         self.column_override = Some((current - 1).max(1));
 
         cx.notify();
     }
 
     fn zoom_grid_out(&mut self, cx: &mut Context<Self>) {
-        let current = self.column_override.unwrap_or(self.columns);
+        let current = self.column_override.unwrap_or(self.num_columns);
         self.column_override = Some((current + 1).min(20));
 
         cx.notify();
@@ -408,7 +409,7 @@ impl Gallery {
     ) {
         match event {
             InputEvent::Change | InputEvent::PressEnter { .. } => {
-                self.reflow(self.columns, self.tile_size, cx);
+                self.reflow(self.num_columns, self.tile_size, cx);
             }
             _ => {}
         };
@@ -466,7 +467,7 @@ impl Gallery {
                 .pb_3()
                 .flex()
                 .gap_3()
-                .children(range.map(|pos| self.render_thumb(self.visible[pos], cx)))
+                .children(range.map(|pos| self.render_thumb(self.filtered_images[pos], cx)))
                 .into_any_element(),
         }
     }
@@ -582,7 +583,7 @@ impl Gallery {
                         .text_color(cx.theme().muted_foreground)
                         .child(format!(
                             "{} images in {} folders",
-                            self.visible.len(),
+                            self.filtered_images.len(),
                             self.groups.len()
                         )),
                 )
@@ -617,7 +618,7 @@ impl Gallery {
 
         // Counter position/total are relative to the filtered view
         let position = self.visible_position(index).map(|p| p + 1).unwrap_or(0);
-        let counter = format!("{} / {}", position, self.visible.len());
+        let counter = format!("{} / {}", position, self.filtered_images.len());
 
         let counter = || {
             Tag::secondary()
@@ -761,9 +762,8 @@ impl Gallery {
             .items_center()
             .justify_center()
             .bg(gpui::rgba(COLOR_BACKDROP))
-            .on_click(cx.listener(|this, _, _, cx| {
+            .on_click(cx.listener(|_, _, _, cx| {
                 cx.stop_propagation();
-                this.close(cx);
             }))
             .on_scroll_wheel(cx.listener(|_, _: &ScrollWheelEvent, _, cx| {
                 cx.stop_propagation();
@@ -809,7 +809,7 @@ impl Render for Gallery {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (columns, tile_size) = self.grid_layout(window);
 
-        if (columns != self.columns || (tile_size - self.tile_size).abs() > 0.5)
+        if (columns != self.num_columns || (tile_size - self.tile_size).abs() > 0.5)
             && !self.images.is_empty()
         {
             self.reflow(columns, tile_size, cx);
@@ -830,7 +830,7 @@ impl Render for Gallery {
             .text_color(cx.theme().foreground)
             .child(self.render_header(cx))
             .map(|el| {
-                if self.visible.is_empty() {
+                if self.filtered_images.is_empty() {
                     el.child(self.render_empty(cx))
                 } else {
                     el.child(self.render_grid(cx))
