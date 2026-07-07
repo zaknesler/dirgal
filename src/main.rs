@@ -1,6 +1,7 @@
 use image::collect_images;
 use std::path::PathBuf;
 
+mod hash;
 mod image;
 mod path;
 mod ui;

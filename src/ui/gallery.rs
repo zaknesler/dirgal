@@ -1,5 +1,6 @@
 use crate::{
-    image::{ImageEntry, SMALL_FILE_BYTES, format_bytes, generate_thumbnail},
+    hash::hash_path,
+    image::{ImageEntry, SMALL_FILE_BYTES, format_bytes},
     path::{group_segments, label_for},
     ui::actions,
 };
@@ -20,8 +21,7 @@ use gpui_component::{
     tag::Tag,
     v_flex,
 };
-use std::collections::{HashSet, VecDeque};
-use std::ops::Range;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -32,24 +32,27 @@ const GRID_H_PADDING: f32 = 32.0;
 const COLOR_ACCENT: u32 = 0xca3500;
 const COLOR_BACKDROP: u32 = 0x0a0a0af0;
 
-type ImageIndex = usize;
-type GroupIndex = usize;
-type VisiblePos = usize;
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct ImageHash(u64);
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct GroupHash(u64);
 
 #[derive(Clone)]
 enum Row {
-    Header(usize),
-    Tiles(Range<VisiblePos>),
+    Header(GroupHash),
+    Tiles(Vec<ImageHash>),
 }
 
 struct Group {
+    hash: GroupHash,
     path: PathBuf,
-    range: Range<VisiblePos>,
+    images: Vec<ImageHash>,
 }
 
 #[derive(Clone, Copy)]
 struct Job {
-    index: ImageIndex,
+    image_hash: ImageHash,
     priority: JobPriority,
 }
 
@@ -71,18 +74,18 @@ enum ThumbState {
 pub struct Gallery {
     roots: Vec<PathBuf>,
     images: Vec<ImageEntry>,
-    filtered_images: Vec<ImageIndex>,
+    filtered_images: Vec<ImageHash>,
     groups: Vec<Group>,
     rows: Vec<Row>,
     num_columns: usize,
     tile_size: f32,
     grid: ListState,
-    thumbs: Vec<ThumbState>,
+    thumbs: HashMap<ImageHash, ThumbState>,
     queue: VecDeque<Job>,
     running: usize,
     concurrency: usize,
-    viewer: Option<ImageIndex>,
-    collapsed_groups: HashSet<GroupIndex>,
+    viewer: Option<ImageHash>,
+    collapsed_groups: HashSet<GroupHash>,
     column_override: Option<usize>,
     focus_handle: FocusHandle,
     input: Entity<InputState>,
@@ -104,17 +107,15 @@ impl Gallery {
         roots: Vec<PathBuf>,
         images: Vec<ImageEntry>,
     ) -> Self {
-        let n = images.len();
-        let thumbs = vec![ThumbState::Unknown; n];
         let queue: VecDeque<Job> = images
             .iter()
-            .enumerate()
-            .filter(|(_, e)| e.bytes >= SMALL_FILE_BYTES)
-            .map(|(index, _)| Job {
-                index,
+            .filter(|e| e.bytes >= SMALL_FILE_BYTES)
+            .map(|entry| Job {
+                image_hash: ImageHash(entry.hash),
                 priority: JobPriority::Deferred,
             })
             .collect();
+
         let concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4)
@@ -133,7 +134,7 @@ impl Gallery {
             images,
             filtered_images: Vec::new(),
             groups: Vec::new(),
-            thumbs,
+            thumbs: HashMap::new(),
             queue,
             concurrency,
             input,
@@ -152,65 +153,89 @@ impl Gallery {
         this
     }
 
-    fn visible_position(&self, index: ImageIndex) -> Option<VisiblePos> {
-        self.filtered_images.iter().position(|&i| i == index)
-    }
-
-    fn compute_visible(images: &[ImageEntry], query: &str) -> Vec<ImageIndex> {
+    fn compute_visible(&self, query: &str) -> Vec<ImageHash> {
         if query.is_empty() {
-            return (0..images.len()).collect();
+            return self.images.iter().map(|e| ImageHash(e.hash)).collect();
         }
 
         let query = query.to_lowercase();
-        images
+        self.images
             .iter()
-            .enumerate()
-            .filter(|(_, e)| e.path.to_string_lossy().to_lowercase().contains(&query))
-            .map(|(index, _)| index)
+            .filter_map(|e| {
+                e.src_path
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .contains(&query)
+                    .then_some(ImageHash(e.hash))
+            })
             .collect()
     }
 
-    fn compute_groups(images: &[ImageEntry], visible: &[ImageIndex]) -> Vec<Group> {
-        let mut groups = Vec::new();
-        let mut start = 0;
+    fn compute_groups(&self) -> Vec<Group> {
+        // Get the parent directory for each image
+        let hash_to_parent: HashMap<ImageHash, PathBuf> = self
+            .images
+            .iter()
+            .map(|e| {
+                let parent = e.src_path.parent().unwrap_or(Path::new("")).to_path_buf();
+                (ImageHash(e.hash), parent)
+            })
+            .collect();
 
-        for i in 1..=visible.len() {
-            let boundary = i == visible.len()
-                || images[visible[i]].path.parent() != images[visible[start]].path.parent();
-            if boundary {
-                let path = images[visible[start]]
-                    .path
-                    .parent()
-                    .unwrap_or(Path::new(""))
-                    .to_path_buf();
-                groups.push(Group {
-                    path,
-                    range: start..i,
-                });
-                start = i;
+        let mut groups: Vec<Group> = Vec::new();
+
+        for &hash in &self.filtered_images {
+            let parent = hash_to_parent[&hash].clone();
+            if let Some(last) = groups.last_mut() {
+                if last.path == parent {
+                    last.images.push(hash);
+                    continue;
+                }
             }
+
+            groups.push(Group {
+                hash: GroupHash(hash_path(&parent)),
+                path: parent,
+                images: vec![hash],
+            });
         }
 
         groups
     }
 
-    fn tile_source(&mut self, index: usize, cx: &mut Context<Self>) -> Option<Arc<Path>> {
-        match &self.thumbs[index] {
-            ThumbState::Ready(p) => Some(p.clone()),
-            ThumbState::Failed => Some(self.images[index].path.clone()),
+    fn visible_position(&self, hash: ImageHash) -> Option<usize> {
+        self.filtered_images.iter().position(|&i| i == hash)
+    }
+
+    fn image_entry(&self, hash: ImageHash) -> Option<&ImageEntry> {
+        self.images.iter().find(|e| ImageHash(e.hash) == hash)
+    }
+
+    fn tile_source(&mut self, hash: ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
+        let state = self
+            .thumbs
+            .get(&hash)
+            .cloned()
+            .unwrap_or(ThumbState::Unknown);
+
+        match state {
+            ThumbState::Ready(p) => Some(p),
+            ThumbState::Failed => self.image_entry(hash).map(|e| e.src_path.clone()),
             ThumbState::Queued | ThumbState::Generating => None,
             ThumbState::Unknown => {
-                let entry = self.images[index].clone();
+                let entry = self.image_entry(hash)?.clone();
                 if entry.bytes < SMALL_FILE_BYTES {
-                    self.thumbs[index] = ThumbState::Ready(entry.path.clone());
-                    Some(entry.path)
-                } else if entry.thumb.exists() {
-                    self.thumbs[index] = ThumbState::Ready(entry.thumb.clone());
-                    Some(entry.thumb)
+                    self.thumbs
+                        .insert(hash, ThumbState::Ready(entry.src_path.clone()));
+                    Some(entry.src_path)
+                } else if entry.thumb_path.exists() {
+                    self.thumbs
+                        .insert(hash, ThumbState::Ready(entry.thumb_path.clone()));
+                    Some(entry.thumb_path)
                 } else {
-                    self.thumbs[index] = ThumbState::Queued;
+                    self.thumbs.insert(hash, ThumbState::Queued);
                     self.queue.push_front(Job {
-                        index,
+                        image_hash: hash,
                         priority: JobPriority::Urgent,
                     });
                     self.process_jobs(cx);
@@ -220,51 +245,61 @@ impl Gallery {
         }
     }
 
-    /// Pops the next ready-to-generate index, skipping stale entries
-    fn next_job(&mut self) -> Option<usize> {
+    fn next_job(&mut self) -> Option<ImageHash> {
         loop {
-            let Job { index, priority } = self.queue.pop_front()?;
+            let Job {
+                image_hash: image,
+                priority,
+            } = self.queue.pop_front()?;
+            let state = self.thumbs.get(&image).unwrap_or(&ThumbState::Unknown);
+
             let live = match priority {
-                JobPriority::Urgent => matches!(self.thumbs[index], ThumbState::Queued),
-                JobPriority::Deferred => matches!(self.thumbs[index], ThumbState::Unknown),
+                JobPriority::Urgent => matches!(state, ThumbState::Queued),
+                JobPriority::Deferred => matches!(state, ThumbState::Unknown),
             };
+
             if live {
-                return Some(index);
+                return Some(image);
             }
         }
     }
 
     fn process_jobs(&mut self, cx: &mut Context<Self>) {
         while self.running < self.concurrency {
-            let Some(index) = self.next_job() else { return };
+            let Some(hash) = self.next_job() else { return };
 
-            self.thumbs[index] = ThumbState::Generating;
+            self.thumbs.insert(hash, ThumbState::Generating);
+            let image = self.image_entry(hash).unwrap().clone();
+
             self.running += 1;
-            let src = self.images[index].path.clone();
-            let dst = self.images[index].thumb.clone();
 
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { generate_thumbnail(&src, &dst).await })
+                    .spawn(async move { image.generate_thumbnail().await })
                     .await;
 
                 this.update(cx, |gallery, cx| {
                     gallery.running -= 1;
-                    gallery.thumbs[index] = match result {
-                        Ok(()) => ThumbState::Ready(gallery.images[index].thumb.clone()),
-                        Err(e) => {
-                            tracing::warn!(
-                                path = %gallery.images[index].path.display(),
-                                error = %e,
-                                "thumbnail generation failed"
-                            );
-                            ThumbState::Failed
-                        }
-                    };
+                    gallery.thumbs.insert(
+                        hash,
+                        match result {
+                            Ok(()) => {
+                                let p = gallery.image_entry(hash).unwrap().thumb_path.clone();
+                                ThumbState::Ready(p)
+                            }
+                            Err(e) => {
+                                let path = gallery
+                                    .image_entry(hash)
+                                    .map(|e| e.src_path.display().to_string())
+                                    .unwrap_or_default();
+                                tracing::warn!(path, error = %e, "thumbnail generation failed");
+                                ThumbState::Failed
+                            }
+                        },
+                    );
 
                     gallery.process_jobs(cx);
-
                     cx.notify();
                 })
                 .ok();
@@ -290,19 +325,16 @@ impl Gallery {
         self.tile_size = tile_size;
 
         let query = self.input.read(cx).value();
-        self.filtered_images = Self::compute_visible(&self.images, &query);
-        self.groups = Self::compute_groups(&self.images, &self.filtered_images);
+        self.filtered_images = self.compute_visible(&query);
+        self.groups = self.compute_groups();
 
         self.rows.clear();
-        for (group_index, group) in self.groups.iter().enumerate() {
-            self.rows.push(Row::Header(group_index));
+        for group in &self.groups {
+            self.rows.push(Row::Header(group.hash));
 
-            if !self.collapsed_groups.contains(&group_index) {
-                let mut start = group.range.start;
-                while start < group.range.end {
-                    let end = (start + columns).min(group.range.end);
-                    self.rows.push(Row::Tiles(start..end));
-                    start = end;
+            if !self.collapsed_groups.contains(&group.hash) {
+                for chunk in group.images.chunks(columns) {
+                    self.rows.push(Row::Tiles(chunk.to_vec()));
                 }
             }
         }
@@ -313,29 +345,26 @@ impl Gallery {
     fn deprioritize(&mut self) {
         for job in &self.queue {
             if job.priority == JobPriority::Urgent {
-                if matches!(self.thumbs[job.index], ThumbState::Queued) {
-                    self.thumbs[job.index] = ThumbState::Unknown;
+                if matches!(self.thumbs.get(&job.image_hash), Some(ThumbState::Queued)) {
+                    self.thumbs.insert(job.image_hash, ThumbState::Unknown);
                 }
             }
         }
         self.queue.retain(|j| j.priority == JobPriority::Deferred);
     }
 
-    fn open(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.show(index, cx);
+    fn open(&mut self, hash: ImageHash, cx: &mut Context<Self>) {
+        self.show(hash, cx);
     }
 
-    /// Shows image `index` in the viewer
-    fn show(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.viewer = Some(index);
-
+    fn show(&mut self, hash: ImageHash, cx: &mut Context<Self>) {
+        self.viewer = Some(hash);
         self.deprioritize();
         cx.notify();
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
         self.viewer = None;
-
         cx.notify();
     }
 
@@ -346,14 +375,18 @@ impl Gallery {
         let Some(current) = self.viewer else { return };
 
         let pos = self.visible_position(current).unwrap_or(0) as isize;
-        let len = self.filtered_images.len() as isize;
-        let next = self.filtered_images[(pos + delta).rem_euclid(len) as usize];
+        let new_pos = pos + delta;
+
+        let len = self.filtered_images.len();
+        let new_pos_index = new_pos.rem_euclid(len as isize) as usize;
+        let next = self.filtered_images[new_pos_index];
+
         self.show(next, cx);
     }
 
-    fn toggle_group(&mut self, group_index: GroupIndex, cx: &mut Context<Self>) {
-        if !self.collapsed_groups.remove(&group_index) {
-            self.collapsed_groups.insert(group_index);
+    fn toggle_group(&mut self, group_hash: GroupHash, cx: &mut Context<Self>) {
+        if !self.collapsed_groups.remove(&group_hash) {
+            self.collapsed_groups.insert(group_hash);
         }
 
         self.reflow(self.num_columns, self.tile_size, cx);
@@ -389,14 +422,12 @@ impl Gallery {
     fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
         let current = self.column_override.unwrap_or(self.num_columns);
         self.column_override = Some((current - 1).max(1));
-
         cx.notify();
     }
 
     fn zoom_grid_out(&mut self, cx: &mut Context<Self>) {
         let current = self.column_override.unwrap_or(self.num_columns);
         self.column_override = Some((current + 1).min(20));
-
         cx.notify();
     }
 
@@ -421,14 +452,14 @@ impl Gallery {
         };
 
         match row {
-            Row::Header(group_index) => {
-                let group = &self.groups[group_index];
+            Row::Header(group_hash) => {
+                let group = self.groups.iter().find(|g| g.hash == group_hash).unwrap();
                 let segments = group_segments(&self.roots, &group.path);
-                let count = group.range.len();
-                let is_collapsed = self.collapsed_groups.contains(&group_index);
+                let count = group.images.len();
+                let is_collapsed = self.collapsed_groups.contains(&group_hash);
 
                 div()
-                    .id(format!("header-{group_index}"))
+                    .id(("header", group_hash.0))
                     .px_4()
                     .pt_5()
                     .pb_2()
@@ -436,9 +467,9 @@ impl Gallery {
                     .items_center()
                     .gap_3()
                     .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_index, cx)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_hash, cx)))
                     .child(
-                        Button::new(format!("chevron-{group_index}"))
+                        Button::new(("chevron", group_hash.0))
                             .ghost()
                             .small()
                             .icon(if is_collapsed {
@@ -448,7 +479,7 @@ impl Gallery {
                             })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
-                                this.toggle_group(group_index, cx);
+                                this.toggle_group(group_hash, cx);
                             })),
                     )
                     .child(
@@ -462,22 +493,22 @@ impl Gallery {
                     .child(Tag::new().small().child(format!("{count}")))
                     .into_any_element()
             }
-            Row::Tiles(range) => div()
+            Row::Tiles(hashes) => div()
                 .px_4()
                 .pb_3()
                 .flex()
                 .gap_3()
-                .children(range.map(|pos| self.render_thumb(self.filtered_images[pos], cx)))
+                .children(hashes.into_iter().map(|hash| self.render_thumb(hash, cx)))
                 .into_any_element(),
         }
     }
 
-    fn render_thumb(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
-        let source = self.tile_source(index, cx);
+    fn render_thumb(&mut self, hash: ImageHash, cx: &mut Context<Self>) -> AnyElement {
+        let source = self.tile_source(hash, cx);
         let tile = px(self.tile_size);
 
         div()
-            .id(index)
+            .id(hash.0 as usize)
             .flex_none()
             .w(tile)
             .h(tile)
@@ -487,7 +518,7 @@ impl Gallery {
             .border_color(cx.theme().border)
             .hover(|s| s.border_color(gpui::rgb(COLOR_ACCENT)))
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| this.open(index, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.open(hash, cx)))
             .map(|tile| match source {
                 Some(path) => tile.child(
                     img(path)
@@ -611,13 +642,12 @@ impl Gallery {
             .child("No images found.")
     }
 
-    fn render_info_bar(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
-        let entry = &self.images[index];
-        let name = label_for(&self.roots, &entry.path);
+    fn render_info_bar(&self, hash: ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
+        let entry = self.image_entry(hash).expect("image should exist");
+        let name = label_for(&self.roots, &entry.src_path);
         let bytes = format_bytes(entry.bytes);
 
-        // Counter position/total are relative to the filtered view
-        let position = self.visible_position(index).map(|p| p + 1).unwrap_or(0);
+        let position = self.visible_position(hash).map(|p| p + 1).unwrap_or(0);
         let counter = format!("{} / {}", position, self.filtered_images.len());
 
         let counter = || {
@@ -677,11 +707,12 @@ impl Gallery {
         )
     }
 
-    fn render_lightbox_content(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
-        let path = self.images[index].path.clone();
+    fn render_lightbox_content(&self, hash: ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
+        let entry = self.image_entry(hash).expect("image should exist");
+        let path = entry.src_path.clone();
 
-        let thumb = match &self.thumbs[index] {
-            ThumbState::Ready(p) if *p != path => Some(p.clone()),
+        let thumb = match self.thumbs.get(&hash) {
+            Some(ThumbState::Ready(p)) if *p != entry.src_path => Some(p.clone()),
             _ => None,
         };
 
@@ -711,7 +742,7 @@ impl Gallery {
                 }))
         };
 
-        let image = || {
+        let image_view = || {
             div()
                 .id("image-area")
                 .relative()
@@ -750,11 +781,11 @@ impl Gallery {
             .px_4()
             .gap_4()
             .child(prev_button(cx))
-            .child(image())
+            .child(image_view())
             .child(next_button(cx))
     }
 
-    fn render_lightbox(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_lightbox(&self, hash: ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .id("lightbox")
             .absolute()
@@ -769,8 +800,8 @@ impl Gallery {
                 cx.stop_propagation();
             }))
             .cursor_default()
-            .child(self.render_lightbox_content(index, cx))
-            .child(self.render_info_bar(index, cx))
+            .child(self.render_lightbox_content(hash, cx))
+            .child(self.render_info_bar(hash, cx))
     }
 
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -836,6 +867,6 @@ impl Render for Gallery {
                     el.child(self.render_grid(cx))
                 }
             })
-            .children(self.viewer.map(|index| self.render_lightbox(index, cx)))
+            .children(self.viewer.map(|hash| self.render_lightbox(hash, cx)))
     }
 }

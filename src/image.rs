@@ -1,6 +1,6 @@
+use crate::hash::hash_path_mtime;
 use std::collections::HashSet;
 use std::fs::{self, Metadata};
-use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
@@ -8,7 +8,6 @@ use std::time::UNIX_EPOCH;
 use gpui::Img;
 use humansize::{BINARY, FormatSizeOptions, format_size};
 use ignore::WalkBuilder;
-use seahash::SeaHasher;
 
 pub const THUMB_PX: u32 = 336;
 
@@ -17,15 +16,65 @@ pub const SMALL_FILE_BYTES: u64 = 32 * 1024;
 
 #[derive(Clone)]
 pub struct ImageEntry {
-    pub path: Arc<Path>,
+    pub hash: u64,
     pub bytes: u64,
-    pub thumb: Arc<Path>,
+    pub src_path: Arc<Path>,
+    pub thumb_path: Arc<Path>,
 }
 
-struct FoundFile {
+pub struct FoundFile {
     path: PathBuf,
     bytes: u64,
     mtime: u64,
+}
+
+impl ImageEntry {
+    pub fn new(file: FoundFile, thumb_dir: &Path) -> Self {
+        let hash = hash_path_mtime(&file.path, file.mtime);
+        let thumb = thumb_dir.join(format!("{:016x}.png", hash));
+
+        Self {
+            hash,
+            src_path: Arc::from(file.path),
+            bytes: file.bytes,
+            thumb_path: Arc::from(thumb),
+        }
+    }
+
+    // #[tracing::instrument
+    pub async fn generate_thumbnail(&self) -> Result<(), String> {
+        let src = &self.src_path;
+        let dst = &self.thumb_path;
+
+        if dst.exists() {
+            return Ok(());
+        }
+
+        let image = image::open(src).map_err(|e| {
+            tracing::warn!(src = %src.display(), error = %e, "failed to open image");
+            e.to_string()
+        })?;
+
+        let thumb = if image.width() <= THUMB_PX && image.height() <= THUMB_PX {
+            image
+        } else {
+            image.thumbnail(THUMB_PX, THUMB_PX)
+        };
+
+        let tmp = dst.with_extension("tmp");
+
+        thumb
+            .save_with_format(&tmp, image::ImageFormat::Png)
+            .map_err(|e| {
+                tracing::warn!(dst = %dst.display(), error = %e, "failed to save thumbnail");
+                e.to_string()
+            })?;
+
+        fs::rename(&tmp, dst).map_err(|e| {
+            tracing::warn!(dst = %dst.display(), error = %e, "failed to rename thumbnail into place");
+            e.to_string()
+        })
+    }
 }
 
 #[tracing::instrument(skip(roots, thumb_dir), fields(roots = roots.len()))]
@@ -59,7 +108,7 @@ pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
 
     found
         .into_iter()
-        .map(|f| build_entry(f, thumb_dir))
+        .map(|f| ImageEntry::new(f, thumb_dir))
         .collect()
 }
 
@@ -93,55 +142,6 @@ fn mtime_nanos(metadata: &Metadata) -> u64 {
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0)
-}
-
-fn thumb_hash(path: &Path, mtime: u64) -> u64 {
-    let mut hasher = SeaHasher::new();
-    hasher.write(path.as_os_str().as_encoded_bytes());
-    hasher.write_u64(mtime);
-    hasher.finish()
-}
-
-fn build_entry(file: FoundFile, thumb_dir: &Path) -> ImageEntry {
-    let thumb = thumb_dir.join(format!("{:016x}.png", thumb_hash(&file.path, file.mtime)));
-
-    ImageEntry {
-        path: Arc::from(file.path),
-        bytes: file.bytes,
-        thumb: Arc::from(thumb),
-    }
-}
-
-#[tracing::instrument(skip(dst), fields(src = %src.display()))]
-pub async fn generate_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
-    if dst.exists() {
-        return Ok(());
-    }
-
-    let image = image::open(src).map_err(|e| {
-        tracing::warn!(src = %src.display(), error = %e, "failed to open image");
-        e.to_string()
-    })?;
-
-    let thumb = if image.width() <= THUMB_PX && image.height() <= THUMB_PX {
-        image
-    } else {
-        image.thumbnail(THUMB_PX, THUMB_PX)
-    };
-
-    let tmp = dst.with_extension("tmp");
-
-    thumb
-        .save_with_format(&tmp, image::ImageFormat::Png)
-        .map_err(|e| {
-            tracing::warn!(dst = %dst.display(), error = %e, "failed to save thumbnail");
-            e.to_string()
-        })?;
-
-    fs::rename(&tmp, dst).map_err(|e| {
-        tracing::warn!(dst = %dst.display(), error = %e, "failed to rename thumbnail into place");
-        e.to_string()
-    })
 }
 
 pub fn format_bytes(bytes: u64) -> String {
