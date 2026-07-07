@@ -9,7 +9,7 @@ use gpui::{
     ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, IconName, Sizable as _,
+    ActiveTheme, IconName, Sizable as _, StyledExt,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _},
     h_flex,
@@ -47,7 +47,7 @@ enum Row {
 struct Group {
     hash: GroupHash,
     path: PathBuf,
-    images: Vec<ImageHash>,
+    images_hashes: Vec<ImageHash>,
 }
 
 #[derive(Clone, Copy)]
@@ -188,7 +188,7 @@ impl Gallery {
             let parent = hash_to_parent[&hash].clone();
             if let Some(last) = groups.last_mut() {
                 if last.path == parent {
-                    last.images.push(hash);
+                    last.images_hashes.push(hash);
                     continue;
                 }
             }
@@ -196,7 +196,7 @@ impl Gallery {
             groups.push(Group {
                 hash: GroupHash(hash_path(&parent)),
                 path: parent,
-                images: vec![hash],
+                images_hashes: vec![hash],
             });
         }
 
@@ -333,7 +333,7 @@ impl Gallery {
             self.rows.push(Row::Header(group.hash));
 
             if !self.collapsed_groups.contains(&group.hash) {
-                for chunk in group.images.chunks(columns) {
+                for chunk in group.images_hashes.chunks(columns) {
                     self.rows.push(Row::Tiles(chunk.to_vec()));
                 }
             }
@@ -350,6 +350,7 @@ impl Gallery {
                 }
             }
         }
+
         self.queue.retain(|j| j.priority == JobPriority::Deferred);
     }
 
@@ -455,11 +456,12 @@ impl Gallery {
             Row::Header(group_hash) => {
                 let group = self.groups.iter().find(|g| g.hash == group_hash).unwrap();
                 let segments = group_segments(&self.roots, &group.path);
-                let count = group.images.len();
+                let count = group.images_hashes.len();
                 let is_collapsed = self.collapsed_groups.contains(&group_hash);
 
                 div()
                     .id(("header", group_hash.0))
+                    .w_full()
                     .px_4()
                     .pt_5()
                     .pb_2()
@@ -467,6 +469,8 @@ impl Gallery {
                     .items_center()
                     .gap_3()
                     .cursor_pointer()
+                    .debug_red()
+                    .group("header")
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_hash, cx)))
                     .child(
                         Button::new(("chevron", group_hash.0))
@@ -477,6 +481,8 @@ impl Gallery {
                             } else {
                                 IconName::ChevronDown
                             })
+                            .text_color(cx.theme().muted_foreground)
+                            .group_hover("header", |el| el.text_color(cx.theme().foreground))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.toggle_group(group_hash, cx);
@@ -494,6 +500,8 @@ impl Gallery {
                     .into_any_element()
             }
             Row::Tiles(hashes) => div()
+                .w_full()
+                .debug_blue()
                 .px_4()
                 .pb_3()
                 .flex()
@@ -658,15 +666,6 @@ impl Gallery {
                 .child(counter)
         };
 
-        let size = || {
-            h_flex()
-                .flex_none()
-                .w_16()
-                .justify_center()
-                .text_color(cx.theme().muted_foreground)
-                .child(bytes)
-        };
-
         let name = || {
             div()
                 .flex_1()
@@ -679,6 +678,30 @@ impl Gallery {
                     SharedString::new_static("…"),
                 ))
                 .child(name)
+        };
+
+        let size = || {
+            h_flex()
+                .flex_none()
+                .justify_center()
+                .text_color(cx.theme().muted_foreground)
+                .child(bytes)
+        };
+
+        let actions = || {
+            h_flex()
+                .flex_none()
+                .justify_center()
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    Button::new("bookmark")
+                        .ghost()
+                        .icon(IconName::Heart)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            //
+                        })),
+                )
         };
 
         h_flex().p_4().w_full().justify_center().child(
@@ -703,7 +726,8 @@ impl Gallery {
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                 .child(counter())
                 .child(name())
-                .child(size()),
+                .child(size())
+                .child(actions()),
         )
     }
 
