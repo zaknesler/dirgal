@@ -41,7 +41,7 @@ impl ImageEntry {
         }
     }
 
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(level = "trace", skip(self))]
     pub async fn generate_thumbnail(&self) -> Result<(), String> {
         let src = &self.src_path;
         let dst = &self.thumb_path;
@@ -77,7 +77,7 @@ impl ImageEntry {
     }
 }
 
-#[tracing::instrument(level = "debug")]
+#[tracing::instrument(level = "debug", skip(roots, thumb_dir))]
 pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut found: Vec<FoundFile> = Vec::new();

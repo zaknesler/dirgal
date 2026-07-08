@@ -22,4 +22,7 @@ pub enum AppError {
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error(transparent)]
+    TomlError(#[from] toml::ser::Error),
 }

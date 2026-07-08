@@ -47,6 +47,14 @@ impl AppConfig {
         Ok(config)
     }
 
+    pub fn save(&self) -> AppResult<()> {
+        let config_dir = Self::get_config_dir()?;
+        let contents = toml::to_string_pretty(self)?;
+        fs::write(config_dir.join(CONFIG_FILE_NAME), contents)?;
+
+        Ok(())
+    }
+
     fn get_default_data() -> Vec<u8> {
         let default = StubAssetDir::get(DEFAULT_FILE_NAME).expect("default.toml stub should exist");
         default.data.as_ref().to_owned()

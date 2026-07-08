@@ -4,6 +4,7 @@ pub mod window;
 
 pub const CONTEXT_GALLERY: &str = "gallery";
 pub const CONTEXT_LIGHTBOX: &str = "lightbox";
+pub const CONTEXT_GALLERY_UNFOCUSED: &str = "gallery && !Input";
 
 pub mod actions {
     gpui::actions!(
@@ -19,7 +20,7 @@ pub mod actions {
             ZoomReset,
             PrevPage,
             NextPage,
-            BookmarkActive
+            Bookmark
         ]
     );
 }

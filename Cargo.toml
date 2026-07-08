@@ -14,6 +14,7 @@ directories = "6.0.0"
 rust-embed = "8.11.0"
 figment = { version = "0.10.19", features = ["toml"] }
 serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }

@@ -1,7 +1,9 @@
-use crate::ui::{CONTEXT_GALLERY, actions, gallery::Gallery, state::AppState};
+use crate::ui::{
+    CONTEXT_GALLERY, CONTEXT_GALLERY_UNFOCUSED, actions, gallery::Gallery, state::AppState,
+};
 use gpui::{App, AppContext as _, KeyBinding, SharedString, TitlebarOptions, WindowOptions};
 
-#[tracing::instrument()]
+#[tracing::instrument(skip(state))]
 pub fn create_window(state: AppState) {
     gpui_platform::application()
         .with_assets(gpui_component_assets::Assets)
@@ -12,19 +14,20 @@ pub fn create_window(state: AppState) {
             cx.set_global(state.clone());
 
             cx.on_action(|_: &actions::Quit, cx| cx.quit());
+
             cx.bind_keys([
                 KeyBinding::new("cmd-q", actions::Quit, None),
                 KeyBinding::new("ctrl-w", actions::Quit, None),
                 KeyBinding::new("ctrl-tab", actions::NextPage, Some(CONTEXT_GALLERY)),
                 KeyBinding::new("ctrl-shift-tab", actions::PrevPage, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("left", actions::Prev, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("right", actions::Next, Some(CONTEXT_GALLERY)),
                 KeyBinding::new("escape", actions::CloseLightbox, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("g", actions::OpenLightbox, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("b", actions::BookmarkActive, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("=", actions::ZoomIn, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("-", actions::ZoomOut, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("0", actions::ZoomReset, Some(CONTEXT_GALLERY)),
+                KeyBinding::new("left", actions::Prev, Some(CONTEXT_GALLERY_UNFOCUSED)),
+                KeyBinding::new("right", actions::Next, Some(CONTEXT_GALLERY_UNFOCUSED)),
+                KeyBinding::new("g", actions::OpenLightbox, Some(CONTEXT_GALLERY_UNFOCUSED)),
+                KeyBinding::new("b", actions::Bookmark, Some(CONTEXT_GALLERY_UNFOCUSED)),
+                KeyBinding::new("=", actions::ZoomIn, Some(CONTEXT_GALLERY_UNFOCUSED)),
+                KeyBinding::new("-", actions::ZoomOut, Some(CONTEXT_GALLERY_UNFOCUSED)),
+                KeyBinding::new("0", actions::ZoomReset, Some(CONTEXT_GALLERY_UNFOCUSED)),
             ]);
 
             let options = WindowOptions {

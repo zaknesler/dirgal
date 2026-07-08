@@ -501,7 +501,7 @@ impl Gallery {
 
     fn on_bookmark_active(
         &mut self,
-        _: &actions::BookmarkActive,
+        _: &actions::Bookmark,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -521,7 +521,36 @@ impl Gallery {
             self.bookmarks.insert(*image_hash);
         }
 
+        self.persist_bookmarks();
         self.refresh(cx);
+    }
+
+    fn persist_bookmarks(&self) {
+        // Leave other bookmarks intact
+        let loaded_paths: HashSet<&Path> =
+            self.images.iter().map(|e| e.src_path.as_ref()).collect();
+
+        let current: Vec<PathBuf> = self
+            .bookmarks
+            .iter()
+            .filter_map(|hash| self.image_entry(hash))
+            .map(|entry| entry.src_path.to_path_buf())
+            .collect();
+
+        // Keep bookmarks that already exist and add the current ones
+        match crate::config::AppConfig::load() {
+            Ok(mut config) => {
+                config
+                    .bookmarks
+                    .retain(|p| !loaded_paths.contains(p.as_path()));
+                config.bookmarks.extend(current);
+
+                if let Err(e) = config.save() {
+                    tracing::warn!(error = %e, "failed to save bookmarks to config");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to load config for saving bookmarks"),
+        }
     }
 
     fn on_open(&mut self, _: &actions::OpenLightbox, _: &mut Window, cx: &mut Context<Self>) {
@@ -690,11 +719,7 @@ impl Gallery {
             }))
             .context_menu(move |this, _, _| {
                 this.check_side(gpui_component::Side::Right)
-                    .menu_with_icon(
-                        "Bookmark",
-                        IconName::Heart,
-                        Box::new(actions::BookmarkActive),
-                    )
+                    .menu_with_icon("Bookmark", IconName::Heart, Box::new(actions::Bookmark))
                     .separator()
                     .menu_with_icon(
                         "Open in Finder",
