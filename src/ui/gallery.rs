@@ -32,6 +32,9 @@ const GRID_H_PADDING: f32 = 32.0;
 
 const NUM_PAGES: usize = 2;
 
+const GRID_CACHE_ITEMS: usize = 500;
+const LIGHTBOX_CACHE_ITEMS: usize = 10;
+
 const COLOR_ACCENT: u32 = 0xca3500;
 const COLOR_BACKDROP: u32 = 0x0a0a0af0;
 
@@ -1012,6 +1015,10 @@ impl Gallery {
 
     fn render_lightbox(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
+            .image_cache(super::cache::simple_lru_cache(
+                super::CONTEXT_LIGHTBOX,
+                LIGHTBOX_CACHE_ITEMS,
+            ))
             .key_context(super::CONTEXT_LIGHTBOX)
             .id(super::CONTEXT_LIGHTBOX)
             .absolute()
@@ -1034,6 +1041,10 @@ impl Gallery {
         let grid = self.grid.clone();
 
         div()
+            .image_cache(super::cache::simple_lru_cache(
+                super::CONTEXT_GRID,
+                GRID_CACHE_ITEMS,
+            ))
             .flex_1()
             .min_h_0()
             .p_4()
