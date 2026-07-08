@@ -1,4 +1,5 @@
 pub mod gallery;
+pub mod state;
 pub mod window;
 
 pub const CONTEXT_GALLERY: &str = "gallery";

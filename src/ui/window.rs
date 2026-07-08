@@ -1,18 +1,15 @@
-use std::path::PathBuf;
-
-use crate::ui::{CONTEXT_GALLERY, actions, gallery::Gallery};
+use crate::ui::{CONTEXT_GALLERY, actions, gallery::Gallery, state::AppState};
 use gpui::{App, AppContext as _, KeyBinding, SharedString, TitlebarOptions, WindowOptions};
-use gpui_component::Root;
 
-#[tracing::instrument(skip_all, fields(images = images.len()))]
-pub fn create_window(roots: Vec<PathBuf>, images: Vec<crate::image::ImageEntry>) {
+#[tracing::instrument()]
+pub fn create_window(state: AppState) {
     gpui_platform::application()
         .with_assets(gpui_component_assets::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
             gpui_component::theme::Theme::change(gpui_component::theme::ThemeMode::Dark, None, cx);
 
-            cx.activate(true);
+            cx.set_global(state.clone());
 
             cx.on_action(|_: &actions::Quit, cx| cx.quit());
             cx.bind_keys([
@@ -39,9 +36,11 @@ pub fn create_window(roots: Vec<PathBuf>, images: Vec<crate::image::ImageEntry>)
             };
 
             cx.open_window(options, move |window, cx| {
-                let view = Gallery::view(window, cx, roots, images);
-                cx.new(|cx| Root::new(view, window, cx))
+                let view = Gallery::view(window, cx);
+                cx.new(|cx| gpui_component::Root::new(view, window, cx))
             })
             .expect("failed to open window");
+
+            cx.activate(true);
         });
 }

@@ -1,19 +1,32 @@
-use image::collect_images;
 use std::path::PathBuf;
 
+use crate::ui::state::AppState;
+
+mod config;
+mod error;
 mod hash;
 mod image;
 mod path;
 mod ui;
 
-fn main() {
-    init_tracing();
+fn main() -> error::AppResult<()> {
+    init_tracing()?;
+
+    let config = config::AppConfig::load()?;
 
     let roots = get_roots();
     let thumb_dir = get_thumbnail_dir();
-    let images = collect_images(&roots, &thumb_dir);
+    let images = image::collect_images(&roots, &thumb_dir);
 
-    ui::window::create_window(roots, images);
+    let state = AppState {
+        config,
+        roots,
+        images,
+    };
+
+    ui::window::create_window(state);
+
+    Ok(())
 }
 
 fn get_roots() -> Vec<PathBuf> {
@@ -42,11 +55,15 @@ fn get_thumbnail_dir() -> PathBuf {
     thumb_dir
 }
 
-fn init_tracing() {
+fn init_tracing() -> error::AppResult<()> {
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+        .with_env_filter(env_filter)
+        .with_target(false)
+        .try_init()
+        .map_err(|err| error::AppError::TracingInitError(err.to_string()))?;
+
+    Ok(())
 }

@@ -2,7 +2,7 @@ use crate::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES, format_bytes},
     path::{group_segments, label_for},
-    ui::actions,
+    ui::{actions, state::AppState},
 };
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListState, ObjectFit,
@@ -132,22 +132,15 @@ pub struct Gallery {
 }
 
 impl Gallery {
-    pub fn view(
-        window: &mut Window,
-        cx: &mut App,
-        roots: Vec<PathBuf>,
-        images: Vec<ImageEntry>,
-    ) -> Entity<Self> {
-        cx.new(|cx| Self::new(window, cx, roots, images))
+    pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self::new(window, cx))
     }
 
-    fn new(
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        roots: Vec<PathBuf>,
-        images: Vec<ImageEntry>,
-    ) -> Self {
-        let queue: VecDeque<Job> = images
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let state = AppState::from_app(cx);
+
+        let queue: VecDeque<Job> = state
+            .images
             .iter()
             .filter(|e| e.bytes >= SMALL_FILE_BYTES)
             .map(|entry| Job {
@@ -169,16 +162,32 @@ impl Gallery {
         cx.subscribe_in(&input, window, Self::on_input_event)
             .detach();
 
-        let image_index = images
+        let image_index = state
+            .images
             .iter()
             .enumerate()
             .map(|(i, e)| (ImageHash(e.hash), i))
             .collect();
 
+        // Prefill bookmarks from paths in config
+        let bookmarks = state
+            .config
+            .bookmarks
+            .clone()
+            .into_iter()
+            .filter_map(|path| {
+                state
+                    .images
+                    .iter()
+                    .find(|i| i.src_path.as_ref() == path)
+                    .map(|image| ImageHash(image.hash))
+            })
+            .collect::<HashSet<_>>();
+
         let mut this = Self {
             page: Page::Gallery,
-            roots,
-            images,
+            roots: state.roots,
+            images: state.images,
             image_index,
             filtered_images: Vec::new(),
             groups: Vec::new(),
@@ -195,7 +204,7 @@ impl Gallery {
             lightbox: None,
             collapsed_groups: HashSet::new(),
             column_override: None,
-            bookmarks: HashSet::new(),
+            bookmarks,
         };
 
         this.process_jobs(cx);
@@ -325,7 +334,7 @@ impl Gallery {
             let Some(hash) = self.next_job() else { return };
 
             self.thumbs.insert(hash, ThumbState::Generating);
-            let image = self.image_entry(&hash).unwrap().clone();
+            let image = self.image_entry(&hash).expect("image should exist").clone();
 
             self.num_running += 1;
 
@@ -341,7 +350,11 @@ impl Gallery {
                         hash,
                         match result {
                             Ok(()) => {
-                                let p = gallery.image_entry(&hash).unwrap().thumb_path.clone();
+                                let p = gallery
+                                    .image_entry(&hash)
+                                    .expect("image should exist")
+                                    .thumb_path
+                                    .clone();
                                 ThumbState::Ready(p)
                             }
                             Err(e) => {
@@ -596,7 +609,11 @@ impl Gallery {
 
         match row {
             Row::Header(group_hash) => {
-                let group = self.groups.iter().find(|g| g.hash == group_hash).unwrap();
+                let group = self
+                    .groups
+                    .iter()
+                    .find(|g| g.hash == group_hash)
+                    .expect("group should exist");
                 let segments = group_segments(&self.roots, &group.path);
                 let count = group.image_hashes.len();
                 let is_collapsed = self.collapsed_groups.contains(&group_hash);
