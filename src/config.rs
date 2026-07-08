@@ -74,14 +74,9 @@ impl AppConfig {
         let local_config_file = config_dir.join(CONFIG_FILE_NAME);
         let exists = local_config_file.try_exists()?;
 
-        let path_str = local_config_file.clone();
-        let path_str = path_str.to_str().unwrap_or_default();
-
         if !exists {
             let mut local_config = fs::File::create(local_config_file)?;
             local_config.write_all(Self::get_default_data().as_ref())?;
-        } else {
-            tracing::info!("config file already exists at {}", &path_str)
         }
 
         Ok(config_dir)
