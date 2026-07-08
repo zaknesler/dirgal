@@ -612,10 +612,6 @@ impl Gallery {
         cx.notify();
     }
 
-    fn is_bookmarked(&self, image_hash: &ImageHash) -> bool {
-        self.bookmarks.contains(image_hash)
-    }
-
     fn get_bookmark_index(&self, image_hash: &ImageHash) -> Option<usize> {
         self.bookmarks.iter().position(|h| h == image_hash)
     }
@@ -887,7 +883,7 @@ impl Gallery {
                 .child(bytes)
         };
 
-        let is_bookmarked = self.is_bookmarked(hash);
+        let is_bookmarked = self.get_bookmark_index(hash).is_some();
         let hash = *hash;
         let actions = || {
             h_flex()
