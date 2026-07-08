@@ -11,10 +11,10 @@ use ignore::WalkBuilder;
 
 pub const THUMB_PX: u32 = 336;
 
-/// Number of bytes a source image must be to not warrant a thumbnail
+/// Number of bytes a source image must be to not warrant a thumbnail (32 KB)
 pub const SMALL_FILE_BYTES: u64 = 32 * 1024;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ImageEntry {
     pub hash: u64,
     pub bytes: u64,
@@ -41,7 +41,7 @@ impl ImageEntry {
         }
     }
 
-    // #[tracing::instrument
+    #[tracing::instrument(level = "trace")]
     pub async fn generate_thumbnail(&self) -> Result<(), String> {
         let src = &self.src_path;
         let dst = &self.thumb_path;
@@ -77,7 +77,7 @@ impl ImageEntry {
     }
 }
 
-#[tracing::instrument(skip(roots, thumb_dir), fields(roots = roots.len()))]
+#[tracing::instrument(level = "debug")]
 pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut found: Vec<FoundFile> = Vec::new();
@@ -103,8 +103,6 @@ pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
     found.sort_by(|a, b| {
         (a.path.parent(), a.path.file_name()).cmp(&(b.path.parent(), b.path.file_name()))
     });
-
-    tracing::debug!(count = found.len(), "found image files");
 
     found
         .into_iter()
