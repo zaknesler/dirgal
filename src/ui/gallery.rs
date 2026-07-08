@@ -38,6 +38,7 @@ struct ImageHash(u64);
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct GroupHash(u64);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Gallery,
     Bookmarks,
@@ -96,9 +97,10 @@ enum ThumbState {
 }
 
 pub struct Gallery {
-    page_index: usize,
+    page: Page,
     roots: Vec<PathBuf>,
     images: Vec<ImageEntry>,
+    image_index: HashMap<ImageHash, usize>,
     filtered_images: Vec<ImageHash>,
     groups: Vec<Group>,
     rows: Vec<Row>,
@@ -155,10 +157,17 @@ impl Gallery {
         cx.subscribe_in(&input, window, Self::on_input_event)
             .detach();
 
+        let image_index = images
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (ImageHash(e.hash), i))
+            .collect();
+
         let mut this = Self {
-            page_index: Page::Gallery.into(),
+            page: Page::Gallery,
             roots,
             images,
+            image_index,
             filtered_images: Vec::new(),
             groups: Vec::new(),
             thumbs: HashMap::new(),
@@ -181,12 +190,8 @@ impl Gallery {
         this
     }
 
-    fn current_page(&self) -> Page {
-        Page::from(self.page_index)
-    }
-
     fn candidate_images(&self) -> Vec<ImageHash> {
-        match self.current_page() {
+        match self.page {
             Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
             Page::Bookmarks => self.bookmarks.iter().cloned().collect(),
         }
@@ -223,11 +228,11 @@ impl Gallery {
 
         for &hash in &self.filtered_images {
             let parent = hash_to_parent[&hash].clone();
-            if let Some(last) = groups.last_mut() {
-                if last.path == parent {
-                    last.images_hashes.push(hash);
-                    continue;
-                }
+            if let Some(last) = groups.last_mut()
+                && last.path == parent
+            {
+                last.images_hashes.push(hash);
+                continue;
             }
 
             groups.push(Group {
@@ -245,17 +250,17 @@ impl Gallery {
     }
 
     fn image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
-        self.images.iter().find(|e| ImageHash(e.hash) == *hash)
+        self.image_index.get(hash).and_then(|i| self.images.get(*i))
     }
 
     fn tile_source(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
         let state = self
             .thumbs
-            .get(&hash)
+            .get(hash)
             .cloned()
             .unwrap_or(ThumbState::Unknown);
 
-        let hash = hash.clone();
+        let hash = *hash;
 
         match state {
             ThumbState::Ready(p) => Some(p),
@@ -359,23 +364,26 @@ impl Gallery {
         (cols, tile)
     }
 
-    fn reflow(&mut self, columns: usize, tile_size: f32, cx: &mut Context<Self>) {
+    fn set_layout(&mut self, columns: usize, tile_size: f32, cx: &mut Context<Self>) {
         self.num_columns = columns;
         self.tile_size = tile_size;
+        self.refresh(cx);
+    }
 
+    fn refresh(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
         let candidates = self.candidate_images();
         self.filtered_images = self.compute_visible(&candidates, &query);
 
         self.rows.clear();
 
-        match self.current_page() {
+        match self.page {
             Page::Gallery => {
                 self.groups = self.compute_groups();
                 for group in &self.groups {
                     self.rows.push(Row::Header(group.hash));
                     if !self.collapsed_groups.contains(&group.hash) {
-                        for chunk in group.images_hashes.chunks(columns) {
+                        for chunk in group.images_hashes.chunks(self.num_columns) {
                             self.rows.push(Row::Tiles(chunk.to_vec()));
                         }
                     }
@@ -383,21 +391,22 @@ impl Gallery {
             }
             Page::Bookmarks => {
                 self.groups.clear();
-                for chunk in self.filtered_images.chunks(columns) {
+                for chunk in self.filtered_images.chunks(self.num_columns) {
                     self.rows.push(Row::Tiles(chunk.to_vec()));
                 }
             }
         }
 
         self.grid = ListState::new(self.rows.len(), ListAlignment::Top, px(600.));
+        cx.notify();
     }
 
     fn deprioritize(&mut self) {
         for job in &self.queue {
-            if job.priority == JobPriority::Urgent {
-                if matches!(self.thumbs.get(&job.image_hash), Some(ThumbState::Queued)) {
-                    self.thumbs.insert(job.image_hash, ThumbState::Unknown);
-                }
+            if job.priority == JobPriority::Urgent
+                && matches!(self.thumbs.get(&job.image_hash), Some(ThumbState::Queued))
+            {
+                self.thumbs.insert(job.image_hash, ThumbState::Unknown);
             }
         }
 
@@ -409,7 +418,7 @@ impl Gallery {
     }
 
     fn show(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        self.viewer = Some(hash.clone());
+        self.viewer = Some(*hash);
         self.deprioritize();
         cx.notify();
     }
@@ -440,19 +449,17 @@ impl Gallery {
             self.collapsed_groups.insert(group_hash);
         }
 
-        self.reflow(self.num_columns, self.tile_size, cx);
-        cx.notify();
+        self.refresh(cx);
     }
 
     fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
         if self.is_bookmarked(image_hash) {
             self.bookmarks.remove(image_hash);
         } else {
-            self.bookmarks.insert(image_hash.clone());
+            self.bookmarks.insert(*image_hash);
         }
 
-        self.reflow(self.num_columns, self.tile_size, cx);
-        cx.notify();
+        self.refresh(cx);
     }
 
     fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
@@ -505,7 +512,7 @@ impl Gallery {
     ) {
         match event {
             InputEvent::Change | InputEvent::PressEnter { .. } => {
-                self.reflow(self.num_columns, self.tile_size, cx);
+                self.refresh(cx);
             }
             _ => {}
         };
@@ -577,7 +584,7 @@ impl Gallery {
         let source = self.tile_source(hash, cx);
         let tile = px(self.tile_size);
 
-        let hash = hash.clone();
+        let hash = *hash;
 
         div()
             .id(hash.0 as usize)
@@ -618,20 +625,19 @@ impl Gallery {
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         TabBar::new("navigation")
             .w_full()
-            .selected_index(self.page_index)
+            .selected_index(self.page.into())
             .px_2()
             .rounded_none()
             .on_click(cx.listener(|this, selected_index, _, cx| {
-                this.page_index = *selected_index;
-                this.reflow(this.num_columns, this.tile_size, cx);
-                cx.notify();
+                this.page = Page::from(*selected_index);
+                this.refresh(cx);
             }))
             .child(Tab::new().px_2().label("Gallery"))
             .child(Tab::new().px_2().label("Bookmarks"))
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let count_label = match self.current_page() {
+        let count_label = match self.page {
             Page::Gallery => format!(
                 "{} images in {} folders",
                 self.filtered_images.len(),
@@ -745,8 +751,8 @@ impl Gallery {
                 .child(bytes)
         };
 
-        let is_bookmarked = self.is_bookmarked(&hash);
-        let hash = hash.clone();
+        let is_bookmarked = self.is_bookmarked(hash);
+        let hash = *hash;
         let actions = || {
             h_flex()
                 .flex_none()
@@ -799,10 +805,10 @@ impl Gallery {
         hash: &ImageHash,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let entry = self.image_entry(&hash).expect("image should exist");
+        let entry = self.image_entry(hash).expect("image should exist");
         let path = entry.src_path.clone();
 
-        let thumb = match self.thumbs.get(&hash) {
+        let thumb = match self.thumbs.get(hash) {
             Some(ThumbState::Ready(p)) if *p != entry.src_path => Some(p.clone()),
             _ => None,
         };
@@ -935,7 +941,7 @@ impl Render for Gallery {
         if (columns != self.num_columns || (tile_size - self.tile_size).abs() > 0.5)
             && !self.images.is_empty()
         {
-            self.reflow(columns, tile_size, cx);
+            self.set_layout(columns, tile_size, cx);
         }
 
         v_flex()
