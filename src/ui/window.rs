@@ -28,6 +28,7 @@ pub fn create_window(state: AppState) {
                 KeyBinding::new("=", actions::ZoomIn, Some(CONTEXT_GALLERY_UNFOCUSED)),
                 KeyBinding::new("-", actions::ZoomOut, Some(CONTEXT_GALLERY_UNFOCUSED)),
                 KeyBinding::new("0", actions::ZoomReset, Some(CONTEXT_GALLERY_UNFOCUSED)),
+                KeyBinding::new("c", actions::CollapseAll, Some(CONTEXT_GALLERY_UNFOCUSED)),
             ]);
 
             let options = WindowOptions {

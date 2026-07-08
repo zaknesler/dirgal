@@ -15,6 +15,7 @@ pub mod actions {
             Quit,
             Prev,
             Next,
+            CollapseAll,
             OpenLightbox,
             CloseLightbox,
             ZoomIn,

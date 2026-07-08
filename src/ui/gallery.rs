@@ -478,30 +478,6 @@ impl Gallery {
         self.refresh(cx);
     }
 
-    fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
-        let current_index: usize = self.page.into();
-        let last_page = (current_index + NUM_PAGES - 1) % NUM_PAGES;
-
-        self.page = Page::from(last_page);
-        self.refresh(cx);
-    }
-
-    fn on_next_page(&mut self, _: &actions::NextPage, _: &mut Window, cx: &mut Context<Self>) {
-        let current_index: usize = self.page.into();
-        let next_page = (current_index + 1) % NUM_PAGES;
-
-        self.page = Page::from(next_page);
-        self.refresh(cx);
-    }
-
-    fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
-        self.step(-1, cx);
-    }
-
-    fn on_next(&mut self, _: &actions::Next, _: &mut Window, cx: &mut Context<Self>) {
-        self.step(1, cx);
-    }
-
     fn on_bookmark_active(
         &mut self,
         _: &actions::Bookmark,
@@ -556,6 +532,21 @@ impl Gallery {
         }
     }
 
+    fn on_collapse_all(
+        &mut self,
+        _: &actions::CollapseAll,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.collapsed_groups.is_empty() {
+            self.collapsed_groups = self.groups.iter().map(|g| g.hash).collect();
+        } else {
+            self.collapsed_groups.clear();
+        }
+
+        self.refresh(cx);
+    }
+
     fn on_open(&mut self, _: &actions::OpenLightbox, _: &mut Window, cx: &mut Context<Self>) {
         if self.filtered_images.len() == 0 {
             return;
@@ -598,6 +589,30 @@ impl Gallery {
     fn on_zoom_reset(&mut self, _: &actions::ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
         self.column_override = None;
         cx.notify();
+    }
+
+    fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
+        self.step(-1, cx);
+    }
+
+    fn on_next(&mut self, _: &actions::Next, _: &mut Window, cx: &mut Context<Self>) {
+        self.step(1, cx);
+    }
+
+    fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
+        let current_index: usize = self.page.into();
+        let last_page = (current_index + NUM_PAGES - 1) % NUM_PAGES;
+
+        self.page = Page::from(last_page);
+        self.refresh(cx);
+    }
+
+    fn on_next_page(&mut self, _: &actions::NextPage, _: &mut Window, cx: &mut Context<Self>) {
+        let current_index: usize = self.page.into();
+        let next_page = (current_index + 1) % NUM_PAGES;
+
+        self.page = Page::from(next_page);
+        self.refresh(cx);
     }
 
     fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
@@ -1097,6 +1112,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_bookmark_active))
             .on_action(cx.listener(Self::on_prev_page))
             .on_action(cx.listener(Self::on_next_page))
+            .on_action(cx.listener(Self::on_collapse_all))
             .relative()
             .size_full()
             .bg(cx.theme().background)
