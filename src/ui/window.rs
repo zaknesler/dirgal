@@ -1,5 +1,7 @@
 use crate::ui::{
-    CONTEXT_GALLERY, CONTEXT_GALLERY_UNFOCUSED, actions, gallery::Gallery, state::AppState,
+    CONTEXT_GALLERY, CONTEXT_GALLERY_UNFOCUSED, actions,
+    gallery::Gallery,
+    state::{AppState, SharedAppState},
 };
 use gpui::{App, AppContext as _, KeyBinding, SharedString, TitlebarOptions, WindowOptions};
 
@@ -11,7 +13,8 @@ pub fn create_window(state: AppState) {
             gpui_component::init(cx);
             gpui_component::theme::Theme::change(gpui_component::theme::ThemeMode::Dark, None, cx);
 
-            cx.set_global(state.clone());
+            let shared = SharedAppState::new(state, cx);
+            cx.set_global(shared);
 
             cx.on_action(|_: &actions::Quit, cx| cx.quit());
 

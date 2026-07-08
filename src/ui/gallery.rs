@@ -2,7 +2,10 @@ use crate::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES, format_bytes},
     path::{group_segments, label_for},
-    ui::{actions, state::AppState},
+    ui::{
+        actions,
+        state::{AppState, SharedAppState},
+    },
 };
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListState, ObjectFit,
@@ -103,6 +106,8 @@ enum ThumbState {
 }
 
 pub struct Gallery {
+    state: Entity<AppState>,
+
     // Navigation
     page: Page,
     focus_handle: FocusHandle,
@@ -138,9 +143,16 @@ impl Gallery {
     }
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let state = AppState::from_app(cx);
+        let state = SharedAppState::from_app(cx).entity().clone();
 
-        let queue: VecDeque<Job> = state
+        cx.observe(&state, |this, _, cx| {
+            this.refresh(cx);
+        })
+        .detach();
+
+        let snapshot = state.read(cx).clone();
+
+        let queue: VecDeque<Job> = snapshot
             .images
             .iter()
             .filter(|e| e.bytes >= SMALL_FILE_BYTES)
@@ -163,7 +175,7 @@ impl Gallery {
         cx.subscribe_in(&input, window, Self::on_input_event)
             .detach();
 
-        let image_index = state
+        let image_index = snapshot
             .images
             .iter()
             .enumerate()
@@ -171,13 +183,13 @@ impl Gallery {
             .collect();
 
         // Prefill bookmarks from paths in config
-        let bookmarks = state
+        let bookmarks = snapshot
             .config
             .bookmarks
             .clone()
             .into_iter()
             .filter_map(|path| {
-                state
+                snapshot
                     .images
                     .iter()
                     .find(|i| i.src_path.as_ref() == path)
@@ -186,9 +198,10 @@ impl Gallery {
             .collect::<Vec<_>>();
 
         let mut this = Self {
+            state,
             page: Page::Gallery,
-            roots: state.roots,
-            images: state.images,
+            roots: snapshot.roots,
+            images: snapshot.images,
             image_index,
             filtered_images: Vec::new(),
             groups: Vec::new(),
