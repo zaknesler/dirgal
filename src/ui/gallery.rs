@@ -14,6 +14,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
+    menu::ContextMenuExt,
     scroll::Scrollbar,
     skeleton::Skeleton,
     spinner::Spinner,
@@ -29,11 +30,13 @@ const TILE_MIN: f32 = 200.0;
 const GRID_GAP: f32 = 12.0;
 const GRID_H_PADDING: f32 = 32.0;
 
+const NUM_PAGES: usize = 2;
+
 const COLOR_ACCENT: u32 = 0xca3500;
 const COLOR_BACKDROP: u32 = 0x0a0a0af0;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct ImageHash(u64);
+pub struct ImageHash(u64);
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct GroupHash(u64);
@@ -72,7 +75,7 @@ enum Row {
 struct Group {
     hash: GroupHash,
     path: PathBuf,
-    images_hashes: Vec<ImageHash>,
+    image_hashes: Vec<ImageHash>,
 }
 
 #[derive(Clone, Copy)]
@@ -97,26 +100,35 @@ enum ThumbState {
 }
 
 pub struct Gallery {
+    // Navigation
     page: Page,
+    focus_handle: FocusHandle,
+    input: Entity<InputState>,
+    viewer: Option<ImageHash>,
+
+    // Data
     roots: Vec<PathBuf>,
     images: Vec<ImageEntry>,
     image_index: HashMap<ImageHash, usize>,
+    bookmarks: HashSet<ImageHash>,
+
+    // Filtered
     filtered_images: Vec<ImageHash>,
-    groups: Vec<Group>,
     rows: Vec<Row>,
-    num_columns: usize,
-    tile_size: f32,
+    groups: Vec<Group>,
+    collapsed_groups: HashSet<GroupHash>,
+
+    // Grid
     grid: ListState,
+    tile_size: f32,
+    num_columns: usize,
+    column_override: Option<usize>,
+
+    // Thumbnails
     thumbs: HashMap<ImageHash, ThumbState>,
     queue: VecDeque<Job>,
-    running: usize,
-    concurrency: usize,
-    viewer: Option<ImageHash>,
-    collapsed_groups: HashSet<GroupHash>,
-    column_override: Option<usize>,
-    focus_handle: FocusHandle,
-    input: Entity<InputState>,
-    bookmarks: HashSet<ImageHash>,
+    num_running: usize,
+    num_concurrency: usize,
 }
 
 impl Gallery {
@@ -172,10 +184,10 @@ impl Gallery {
             groups: Vec::new(),
             thumbs: HashMap::new(),
             queue,
-            concurrency,
+            num_concurrency: concurrency,
             input,
             focus_handle,
-            running: 0,
+            num_running: 0,
             num_columns: 0,
             rows: Vec::new(),
             tile_size: TILE_MIN,
@@ -231,14 +243,14 @@ impl Gallery {
             if let Some(last) = groups.last_mut()
                 && last.path == parent
             {
-                last.images_hashes.push(hash);
+                last.image_hashes.push(hash);
                 continue;
             }
 
             groups.push(Group {
                 hash: GroupHash(hash_path(&parent)),
                 path: parent,
-                images_hashes: vec![hash],
+                image_hashes: vec![hash],
             });
         }
 
@@ -309,13 +321,13 @@ impl Gallery {
     }
 
     fn process_jobs(&mut self, cx: &mut Context<Self>) {
-        while self.running < self.concurrency {
+        while self.num_running < self.num_concurrency {
             let Some(hash) = self.next_job() else { return };
 
             self.thumbs.insert(hash, ThumbState::Generating);
             let image = self.image_entry(&hash).unwrap().clone();
 
-            self.running += 1;
+            self.num_running += 1;
 
             cx.spawn(async move |this, cx| {
                 let result = cx
@@ -324,7 +336,7 @@ impl Gallery {
                     .await;
 
                 this.update(cx, |gallery, cx| {
-                    gallery.running -= 1;
+                    gallery.num_running -= 1;
                     gallery.thumbs.insert(
                         hash,
                         match result {
@@ -383,7 +395,7 @@ impl Gallery {
                 for group in &self.groups {
                     self.rows.push(Row::Header(group.hash));
                     if !self.collapsed_groups.contains(&group.hash) {
-                        for chunk in group.images_hashes.chunks(self.num_columns) {
+                        for chunk in group.image_hashes.chunks(self.num_columns) {
                             self.rows.push(Row::Tiles(chunk.to_vec()));
                         }
                     }
@@ -452,6 +464,41 @@ impl Gallery {
         self.refresh(cx);
     }
 
+    fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
+        let current_index: usize = self.page.into();
+        let last_page = (current_index + NUM_PAGES - 1) % NUM_PAGES;
+
+        self.page = Page::from(last_page);
+        self.refresh(cx);
+    }
+
+    fn on_next_page(&mut self, _: &actions::NextPage, _: &mut Window, cx: &mut Context<Self>) {
+        let current_index: usize = self.page.into();
+        let next_page = (current_index + 1) % NUM_PAGES;
+
+        self.page = Page::from(next_page);
+        self.refresh(cx);
+    }
+
+    fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
+        self.step(-1, cx);
+    }
+
+    fn on_next(&mut self, _: &actions::Next, _: &mut Window, cx: &mut Context<Self>) {
+        self.step(1, cx);
+    }
+
+    fn on_bookmark_active(
+        &mut self,
+        _: &actions::BookmarkActive,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(hash) = self.viewer {
+            self.toggle_bookmark(&hash, cx);
+        }
+    }
+
     fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
         if self.is_bookmarked(image_hash) {
             self.bookmarks.remove(image_hash);
@@ -462,12 +509,25 @@ impl Gallery {
         self.refresh(cx);
     }
 
-    fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
-        self.step(-1, cx);
-    }
+    fn on_open(&mut self, _: &actions::OpenLightbox, _: &mut Window, cx: &mut Context<Self>) {
+        // get first image that is not in a collapsed group
+        let first = self
+            .filtered_images
+            .iter()
+            .find(|hash| {
+                let group = self
+                    .groups
+                    .iter()
+                    .find(|g| g.image_hashes.contains(hash))
+                    .expect("group should exist");
+                let is_collapsed = self.collapsed_groups.contains(&group.hash);
+                !is_collapsed
+            })
+            .copied();
 
-    fn on_next(&mut self, _: &actions::Next, _: &mut Window, cx: &mut Context<Self>) {
-        self.step(1, cx);
+        if let Some(hash) = first {
+            self.show(&hash, cx);
+        }
     }
 
     fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {
@@ -527,7 +587,7 @@ impl Gallery {
             Row::Header(group_hash) => {
                 let group = self.groups.iter().find(|g| g.hash == group_hash).unwrap();
                 let segments = group_segments(&self.roots, &group.path);
-                let count = group.images_hashes.len();
+                let count = group.image_hashes.len();
                 let is_collapsed = self.collapsed_groups.contains(&group_hash);
 
                 h_flex()
@@ -587,6 +647,7 @@ impl Gallery {
         let hash = *hash;
 
         div()
+            .key_context(super::CONTEXT_GALLERY)
             .id(hash.0 as usize)
             .flex_none()
             .w(tile)
@@ -597,7 +658,24 @@ impl Gallery {
             .border_color(cx.theme().border)
             .hover(|s| s.border_color(gpui::rgb(COLOR_ACCENT)))
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| this.open(&hash, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.open(&hash, cx)
+            }))
+            .context_menu(move |this, _, _| {
+                this.check_side(gpui_component::Side::Right)
+                    .menu_with_icon(
+                        "Bookmark",
+                        IconName::Heart,
+                        Box::new(actions::BookmarkActive),
+                    )
+                    .separator()
+                    .menu_with_icon(
+                        "Open in Finder",
+                        IconName::FolderOpen,
+                        Box::new(actions::Quit),
+                    )
+            })
             .map(|tile| match source {
                 Some(path) => tile.child(
                     img(path)
@@ -746,7 +824,7 @@ impl Gallery {
         let size = || {
             h_flex()
                 .flex_none()
-                .justify_center()
+                .text_right()
                 .text_color(cx.theme().muted_foreground)
                 .child(bytes)
         };
@@ -756,7 +834,6 @@ impl Gallery {
         let actions = || {
             h_flex()
                 .flex_none()
-                .justify_center()
                 .text_color(cx.theme().muted_foreground)
                 .child(
                     Button::new("bookmark")
@@ -884,7 +961,8 @@ impl Gallery {
 
     fn render_lightbox(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
-            .id("lightbox")
+            .key_context(super::CONTEXT_LIGHTBOX)
+            .id(super::CONTEXT_LIGHTBOX)
             .absolute()
             .inset_0()
             .items_center()
@@ -945,14 +1023,18 @@ impl Render for Gallery {
         }
 
         v_flex()
-            .key_context("Gallery")
+            .key_context(super::CONTEXT_GALLERY)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_prev))
             .on_action(cx.listener(Self::on_next))
+            .on_action(cx.listener(Self::on_open))
             .on_action(cx.listener(Self::on_close))
             .on_action(cx.listener(Self::on_zoom_in))
             .on_action(cx.listener(Self::on_zoom_out))
             .on_action(cx.listener(Self::on_zoom_reset))
+            .on_action(cx.listener(Self::on_bookmark_active))
+            .on_action(cx.listener(Self::on_prev_page))
+            .on_action(cx.listener(Self::on_next_page))
             .relative()
             .size_full()
             .bg(cx.theme().background)
