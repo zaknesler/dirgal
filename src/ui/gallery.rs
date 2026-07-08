@@ -110,13 +110,11 @@ pub struct Gallery {
     roots: Vec<PathBuf>,
     images: Vec<ImageEntry>,
     image_index: HashMap<ImageHash, usize>,
-    bookmarks: HashSet<ImageHash>,
-
-    // Filtered
     filtered_images: Vec<ImageHash>,
     rows: Vec<Row>,
     groups: Vec<Group>,
     collapsed_groups: HashSet<GroupHash>,
+    bookmarks: HashSet<ImageHash>,
 
     // Grid
     grid: ListState,
