@@ -510,20 +510,22 @@ impl Gallery {
     }
 
     fn on_open(&mut self, _: &actions::OpenLightbox, _: &mut Window, cx: &mut Context<Self>) {
-        // get first image that is not in a collapsed group
-        let first = self
-            .filtered_images
-            .iter()
-            .find(|hash| {
-                let group = self
-                    .groups
-                    .iter()
-                    .find(|g| g.image_hashes.contains(hash))
-                    .expect("group should exist");
-                let is_collapsed = self.collapsed_groups.contains(&group.hash);
-                !is_collapsed
-            })
-            .copied();
+        let first = match self.page {
+            Page::Gallery => self
+                .candidate_images()
+                .iter()
+                .find(|hash| {
+                    let group = self
+                        .groups
+                        .iter()
+                        .find(|g| g.image_hashes.contains(hash))
+                        .expect("group should exist");
+                    let is_collapsed = self.collapsed_groups.contains(&group.hash);
+                    !is_collapsed
+                })
+                .copied(),
+            Page::Bookmarks => self.candidate_images().first().copied(),
+        };
 
         if let Some(hash) = first {
             self.show(&hash, cx);
