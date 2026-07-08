@@ -44,9 +44,9 @@ enum Page {
     Bookmarks,
 }
 
-impl Into<usize> for Page {
-    fn into(self) -> usize {
-        match self {
+impl From<Page> for usize {
+    fn from(page: Page) -> Self {
+        match page {
             Page::Gallery => 0,
             Page::Bookmarks => 1,
         }
