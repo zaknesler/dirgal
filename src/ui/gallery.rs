@@ -38,9 +38,32 @@ struct ImageHash(u64);
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct GroupHash(u64);
 
+enum Page {
+    Gallery,
+    Bookmarks,
+}
+
+impl Into<usize> for Page {
+    fn into(self) -> usize {
+        match self {
+            Page::Gallery => 0,
+            Page::Bookmarks => 1,
+        }
+    }
+}
+
+impl From<usize> for Page {
+    fn from(index: usize) -> Self {
+        match index {
+            0 => Page::Gallery,
+            1 => Page::Bookmarks,
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[derive(Clone)]
 enum Row {
-    Bookmarks,
     Header(GroupHash),
     Tiles(Vec<ImageHash>),
 }
@@ -73,6 +96,7 @@ enum ThumbState {
 }
 
 pub struct Gallery {
+    page_index: usize,
     roots: Vec<PathBuf>,
     images: Vec<ImageEntry>,
     filtered_images: Vec<ImageHash>,
@@ -132,6 +156,7 @@ impl Gallery {
             .detach();
 
         let mut this = Self {
+            page_index: Page::Gallery.into(),
             roots,
             images,
             filtered_images: Vec::new(),
@@ -156,21 +181,30 @@ impl Gallery {
         this
     }
 
-    fn compute_visible(&self, query: &str) -> Vec<ImageHash> {
-        if query.is_empty() {
-            return self.images.iter().map(|e| ImageHash(e.hash)).collect();
-        }
+    fn current_page(&self) -> Page {
+        Page::from(self.page_index)
+    }
 
+    fn candidate_images(&self) -> Vec<ImageHash> {
+        match self.current_page() {
+            Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
+            Page::Bookmarks => self.bookmarks.iter().cloned().collect(),
+        }
+    }
+
+    fn compute_visible(&self, candidates: &[ImageHash], query: &str) -> Vec<ImageHash> {
+        if query.is_empty() {
+            return candidates.to_vec();
+        }
         let query = query.to_lowercase();
-        self.images
+        candidates
             .iter()
-            .filter_map(|e| {
-                e.src_path
-                    .to_string_lossy()
-                    .to_lowercase()
-                    .contains(&query)
-                    .then_some(ImageHash(e.hash))
+            .filter(|hash| {
+                self.image_entry(hash)
+                    .map(|e| e.src_path.to_string_lossy().to_lowercase().contains(&query))
+                    .unwrap_or(false)
             })
+            .cloned()
             .collect()
     }
 
@@ -330,23 +364,26 @@ impl Gallery {
         self.tile_size = tile_size;
 
         let query = self.input.read(cx).value();
-        self.filtered_images = self.compute_visible(&query);
-        self.groups = self.compute_groups();
+        let candidates = self.candidate_images();
+        self.filtered_images = self.compute_visible(&candidates, &query);
 
         self.rows.clear();
 
-        if !self.bookmarks.is_empty() {
-            self.rows.push(Row::Bookmarks);
-
-            let images = self.bookmarks.iter().cloned().collect::<Vec<_>>();
-            self.rows.push(Row::Tiles(images))
-        }
-
-        for group in &self.groups {
-            self.rows.push(Row::Header(group.hash));
-
-            if !self.collapsed_groups.contains(&group.hash) {
-                for chunk in group.images_hashes.chunks(columns) {
+        match self.current_page() {
+            Page::Gallery => {
+                self.groups = self.compute_groups();
+                for group in &self.groups {
+                    self.rows.push(Row::Header(group.hash));
+                    if !self.collapsed_groups.contains(&group.hash) {
+                        for chunk in group.images_hashes.chunks(columns) {
+                            self.rows.push(Row::Tiles(chunk.to_vec()));
+                        }
+                    }
+                }
+            }
+            Page::Bookmarks => {
+                self.groups.clear();
+                for chunk in self.filtered_images.chunks(columns) {
                     self.rows.push(Row::Tiles(chunk.to_vec()));
                 }
             }
@@ -480,30 +517,19 @@ impl Gallery {
         };
 
         match row {
-            Row::Bookmarks => div()
-                .w_full()
-                .px_4()
-                .pt_5()
-                .pb_2()
-                .flex()
-                .items_center()
-                .child("Bookmarks")
-                .into_any_element(),
             Row::Header(group_hash) => {
                 let group = self.groups.iter().find(|g| g.hash == group_hash).unwrap();
                 let segments = group_segments(&self.roots, &group.path);
                 let count = group.images_hashes.len();
                 let is_collapsed = self.collapsed_groups.contains(&group_hash);
 
-                div()
+                h_flex()
                     .id(("header", group_hash.0))
                     .w_full()
-                    .px_4()
-                    .pt_5()
-                    .pb_2()
-                    .flex()
                     .items_center()
-                    .gap_3()
+                    .gap_2()
+                    .when(!is_collapsed, |el| el.pb_4())
+                    .when(index != 0, |el| el.pt_4())
                     .cursor_pointer()
                     .group("header")
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_hash, cx)))
@@ -534,12 +560,10 @@ impl Gallery {
                     .child(Tag::new().small().child(format!("{count}")))
                     .into_any_element()
             }
-            Row::Tiles(hashes) => div()
+            Row::Tiles(hashes) => h_flex()
                 .w_full()
-                .px_4()
-                .pb_3()
-                .flex()
-                .gap_3()
+                .gap_2()
+                .pb_2()
                 .children(
                     hashes
                         .into_iter()
@@ -591,16 +615,31 @@ impl Gallery {
             .into_any_element()
     }
 
-    fn render_tab_bar(&self, _cx: &mut Context<Self>) -> impl IntoElement {
-        TabBar::new("tabs")
+    fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        TabBar::new("navigation")
             .w_full()
-            .selected_index(0)
+            .selected_index(self.page_index)
+            .px_2()
             .rounded_none()
-            .child(Tab::new().label("Gallery"))
-            .child(Tab::new().label("Bookmarks"))
+            .on_click(cx.listener(|this, selected_index, _, cx| {
+                this.page_index = *selected_index;
+                this.reflow(this.num_columns, this.tile_size, cx);
+                cx.notify();
+            }))
+            .child(Tab::new().px_2().label("Gallery"))
+            .child(Tab::new().px_2().label("Bookmarks"))
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let count_label = match self.current_page() {
+            Page::Gallery => format!(
+                "{} images in {} folders",
+                self.filtered_images.len(),
+                self.groups.len()
+            ),
+            Page::Bookmarks => format!("{} bookmarked images", self.filtered_images.len()),
+        };
+
         let search = || {
             h_flex()
                 .flex_1()
@@ -618,11 +657,7 @@ impl Gallery {
                         .flex_none()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!(
-                            "{} images in {} folders",
-                            self.filtered_images.len(),
-                            self.groups.len()
-                        )),
+                        .child(count_label),
                 )
         };
 
@@ -664,9 +699,8 @@ impl Gallery {
     }
 
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+        h_flex()
             .flex_1()
-            .flex()
             .items_center()
             .justify_center()
             .text_color(cx.theme().muted_foreground)
@@ -867,6 +901,7 @@ impl Gallery {
         div()
             .flex_1()
             .min_h_0()
+            .p_4()
             .relative()
             .child(
                 list(
