@@ -9,15 +9,15 @@ use gpui::{
     ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, IconName, Sizable as _, StyledExt,
+    ActiveTheme, IconName, Sizable as _,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::Scrollbar,
-    separator::Separator,
     skeleton::Skeleton,
     spinner::Spinner,
+    tab::{Tab, TabBar},
     tag::Tag,
     v_flex,
 };
@@ -40,6 +40,7 @@ struct GroupHash(u64);
 
 #[derive(Clone)]
 enum Row {
+    Bookmarks,
     Header(GroupHash),
     Tiles(Vec<ImageHash>),
 }
@@ -89,6 +90,7 @@ pub struct Gallery {
     column_override: Option<usize>,
     focus_handle: FocusHandle,
     input: Entity<InputState>,
+    bookmarks: HashSet<ImageHash>,
 }
 
 impl Gallery {
@@ -147,6 +149,7 @@ impl Gallery {
             viewer: None,
             collapsed_groups: HashSet::new(),
             column_override: None,
+            bookmarks: HashSet::new(),
         };
 
         this.process_jobs(cx);
@@ -203,27 +206,29 @@ impl Gallery {
         groups
     }
 
-    fn visible_position(&self, hash: ImageHash) -> Option<usize> {
-        self.filtered_images.iter().position(|&i| i == hash)
+    fn visible_position(&self, hash: &ImageHash) -> Option<usize> {
+        self.filtered_images.iter().position(|&i| i == *hash)
     }
 
-    fn image_entry(&self, hash: ImageHash) -> Option<&ImageEntry> {
-        self.images.iter().find(|e| ImageHash(e.hash) == hash)
+    fn image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
+        self.images.iter().find(|e| ImageHash(e.hash) == *hash)
     }
 
-    fn tile_source(&mut self, hash: ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
+    fn tile_source(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
         let state = self
             .thumbs
             .get(&hash)
             .cloned()
             .unwrap_or(ThumbState::Unknown);
 
+        let hash = hash.clone();
+
         match state {
             ThumbState::Ready(p) => Some(p),
-            ThumbState::Failed => self.image_entry(hash).map(|e| e.src_path.clone()),
+            ThumbState::Failed => self.image_entry(&hash).map(|e| e.src_path.clone()),
             ThumbState::Queued | ThumbState::Generating => None,
             ThumbState::Unknown => {
-                let entry = self.image_entry(hash)?.clone();
+                let entry = self.image_entry(&hash)?.clone();
                 if entry.bytes < SMALL_FILE_BYTES {
                     self.thumbs
                         .insert(hash, ThumbState::Ready(entry.src_path.clone()));
@@ -269,7 +274,7 @@ impl Gallery {
             let Some(hash) = self.next_job() else { return };
 
             self.thumbs.insert(hash, ThumbState::Generating);
-            let image = self.image_entry(hash).unwrap().clone();
+            let image = self.image_entry(&hash).unwrap().clone();
 
             self.running += 1;
 
@@ -285,12 +290,12 @@ impl Gallery {
                         hash,
                         match result {
                             Ok(()) => {
-                                let p = gallery.image_entry(hash).unwrap().thumb_path.clone();
+                                let p = gallery.image_entry(&hash).unwrap().thumb_path.clone();
                                 ThumbState::Ready(p)
                             }
                             Err(e) => {
                                 let path = gallery
-                                    .image_entry(hash)
+                                    .image_entry(&hash)
                                     .map(|e| e.src_path.display().to_string())
                                     .unwrap_or_default();
                                 tracing::warn!(path, error = %e, "thumbnail generation failed");
@@ -329,6 +334,14 @@ impl Gallery {
         self.groups = self.compute_groups();
 
         self.rows.clear();
+
+        if !self.bookmarks.is_empty() {
+            self.rows.push(Row::Bookmarks);
+
+            let images = self.bookmarks.iter().cloned().collect::<Vec<_>>();
+            self.rows.push(Row::Tiles(images))
+        }
+
         for group in &self.groups {
             self.rows.push(Row::Header(group.hash));
 
@@ -354,12 +367,12 @@ impl Gallery {
         self.queue.retain(|j| j.priority == JobPriority::Deferred);
     }
 
-    fn open(&mut self, hash: ImageHash, cx: &mut Context<Self>) {
+    fn open(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
         self.show(hash, cx);
     }
 
-    fn show(&mut self, hash: ImageHash, cx: &mut Context<Self>) {
-        self.viewer = Some(hash);
+    fn show(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
+        self.viewer = Some(hash.clone());
         self.deprioritize();
         cx.notify();
     }
@@ -375,14 +388,14 @@ impl Gallery {
         }
         let Some(current) = self.viewer else { return };
 
-        let pos = self.visible_position(current).unwrap_or(0) as isize;
+        let pos = self.visible_position(&current).unwrap_or(0) as isize;
         let new_pos = pos + delta;
 
         let len = self.filtered_images.len();
         let new_pos_index = new_pos.rem_euclid(len as isize) as usize;
         let next = self.filtered_images[new_pos_index];
 
-        self.show(next, cx);
+        self.show(&next, cx);
     }
 
     fn toggle_group(&mut self, group_hash: GroupHash, cx: &mut Context<Self>) {
@@ -391,7 +404,17 @@ impl Gallery {
         }
 
         self.reflow(self.num_columns, self.tile_size, cx);
+        cx.notify();
+    }
 
+    fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
+        if self.is_bookmarked(image_hash) {
+            self.bookmarks.remove(image_hash);
+        } else {
+            self.bookmarks.insert(image_hash.clone());
+        }
+
+        self.reflow(self.num_columns, self.tile_size, cx);
         cx.notify();
     }
 
@@ -432,6 +455,10 @@ impl Gallery {
         cx.notify();
     }
 
+    fn is_bookmarked(&self, image_hash: &ImageHash) -> bool {
+        self.bookmarks.contains(image_hash)
+    }
+
     fn on_input_event(
         &mut self,
         _: &Entity<InputState>,
@@ -453,6 +480,15 @@ impl Gallery {
         };
 
         match row {
+            Row::Bookmarks => div()
+                .w_full()
+                .px_4()
+                .pt_5()
+                .pb_2()
+                .flex()
+                .items_center()
+                .child("Bookmarks")
+                .into_any_element(),
             Row::Header(group_hash) => {
                 let group = self.groups.iter().find(|g| g.hash == group_hash).unwrap();
                 let segments = group_segments(&self.roots, &group.path);
@@ -469,7 +505,6 @@ impl Gallery {
                     .items_center()
                     .gap_3()
                     .cursor_pointer()
-                    .debug_red()
                     .group("header")
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_hash, cx)))
                     .child(
@@ -501,19 +536,24 @@ impl Gallery {
             }
             Row::Tiles(hashes) => div()
                 .w_full()
-                .debug_blue()
                 .px_4()
                 .pb_3()
                 .flex()
                 .gap_3()
-                .children(hashes.into_iter().map(|hash| self.render_thumb(hash, cx)))
+                .children(
+                    hashes
+                        .into_iter()
+                        .map(|ref hash| self.render_thumb(hash, cx)),
+                )
                 .into_any_element(),
         }
     }
 
-    fn render_thumb(&mut self, hash: ImageHash, cx: &mut Context<Self>) -> AnyElement {
+    fn render_thumb(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
         let source = self.tile_source(hash, cx);
         let tile = px(self.tile_size);
+
+        let hash = hash.clone();
 
         div()
             .id(hash.0 as usize)
@@ -526,7 +566,7 @@ impl Gallery {
             .border_color(cx.theme().border)
             .hover(|s| s.border_color(gpui::rgb(COLOR_ACCENT)))
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| this.open(hash, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.open(&hash, cx)))
             .map(|tile| match source {
                 Some(path) => tile.child(
                     img(path)
@@ -551,61 +591,19 @@ impl Gallery {
             .into_any_element()
     }
 
+    fn render_tab_bar(&self, _cx: &mut Context<Self>) -> impl IntoElement {
+        TabBar::new("tabs")
+            .w_full()
+            .selected_index(0)
+            .rounded_none()
+            .child(Tab::new().label("Gallery"))
+            .child(Tab::new().label("Bookmarks"))
+    }
+
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let roots = self
-            .roots
-            .iter()
-            .map(|r| r.display().to_string())
-            .collect::<Vec<_>>()
-            .join(" · ");
-
-        let upper = || {
+        let search = || {
             h_flex()
-                .gap_4()
-                .items_center()
-                .justify_between()
-                .child(
-                    h_flex().items_baseline().gap_3().child(
-                        div()
-                            .min_w_0()
-                            .text_sm()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(format!("{roots}")),
-                    ),
-                )
-                .child(
-                    h_flex()
-                        .flex_none()
-                        .items_center()
-                        .gap_px()
-                        .child(
-                            Button::new("grid-zoom-out")
-                                .ghost()
-                                .small()
-                                .icon(IconName::Minus)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.zoom_grid_out(cx);
-                                })),
-                        )
-                        .child(
-                            Button::new("grid-zoom-in")
-                                .ghost()
-                                .small()
-                                .icon(IconName::Plus)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.zoom_grid_in(cx);
-                                })),
-                        ),
-                )
-        };
-
-        let lower = || {
-            h_flex()
+                .flex_1()
                 .gap_4()
                 .items_center()
                 .child(
@@ -628,16 +626,41 @@ impl Gallery {
                 )
         };
 
-        v_flex()
-            .items_stretch()
+        let controls = || {
+            h_flex()
+                .flex_none()
+                .items_center()
+                .gap_px()
+                .child(
+                    Button::new("grid-zoom-out")
+                        .ghost()
+                        .small()
+                        .icon(IconName::Minus)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.zoom_grid_out(cx);
+                        })),
+                )
+                .child(
+                    Button::new("grid-zoom-in")
+                        .ghost()
+                        .small()
+                        .icon(IconName::Plus)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.zoom_grid_in(cx);
+                        })),
+                )
+        };
+
+        h_flex()
             .gap_4()
             .px_4()
             .py_3()
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(upper())
-            .child(Separator::horizontal())
-            .child(lower())
+            .child(search())
+            .child(controls())
     }
 
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -650,7 +673,7 @@ impl Gallery {
             .child("No images found.")
     }
 
-    fn render_info_bar(&self, hash: ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_info_bar(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = self.image_entry(hash).expect("image should exist");
         let name = label_for(&self.roots, &entry.src_path);
         let bytes = format_bytes(entry.bytes);
@@ -688,6 +711,8 @@ impl Gallery {
                 .child(bytes)
         };
 
+        let is_bookmarked = self.is_bookmarked(&hash);
+        let hash = hash.clone();
         let actions = || {
             h_flex()
                 .flex_none()
@@ -696,10 +721,14 @@ impl Gallery {
                 .child(
                     Button::new("bookmark")
                         .ghost()
-                        .icon(IconName::Heart)
-                        .on_click(cx.listener(|this, _, _, cx| {
+                        .icon(if is_bookmarked {
+                            IconName::HeartOff
+                        } else {
+                            IconName::Heart
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
-                            //
+                            this.toggle_bookmark(&hash, cx);
                         })),
                 )
         };
@@ -731,8 +760,12 @@ impl Gallery {
         )
     }
 
-    fn render_lightbox_content(&self, hash: ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
-        let entry = self.image_entry(hash).expect("image should exist");
+    fn render_lightbox_content(
+        &self,
+        hash: &ImageHash,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let entry = self.image_entry(&hash).expect("image should exist");
         let path = entry.src_path.clone();
 
         let thumb = match self.thumbs.get(&hash) {
@@ -809,7 +842,7 @@ impl Gallery {
             .child(next_button(cx))
     }
 
-    fn render_lightbox(&self, hash: ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_lightbox(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .id("lightbox")
             .absolute()
@@ -883,6 +916,7 @@ impl Render for Gallery {
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            .child(self.render_tab_bar(cx))
             .child(self.render_header(cx))
             .map(|el| {
                 if self.filtered_images.is_empty() {
@@ -891,6 +925,8 @@ impl Render for Gallery {
                     el.child(self.render_grid(cx))
                 }
             })
-            .children(self.viewer.map(|hash| self.render_lightbox(hash, cx)))
+            .when_some(self.viewer, |el, hash| {
+                el.child(self.render_lightbox(&hash, cx))
+            })
     }
 }
