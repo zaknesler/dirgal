@@ -117,7 +117,7 @@ pub struct Gallery {
     rows: Vec<Row>,
     groups: Vec<Group>,
     collapsed_groups: HashSet<GroupHash>,
-    bookmarks: HashSet<ImageHash>,
+    bookmarks: Vec<ImageHash>,
 
     // Grid
     grid: ListState,
@@ -183,7 +183,7 @@ impl Gallery {
                     .find(|i| i.src_path.as_ref() == path)
                     .map(|image| ImageHash(image.hash))
             })
-            .collect::<HashSet<_>>();
+            .collect::<Vec<_>>();
 
         let mut this = Self {
             page: Page::Gallery,
@@ -518,10 +518,10 @@ impl Gallery {
     }
 
     fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
-        if self.is_bookmarked(image_hash) {
-            self.bookmarks.remove(image_hash);
+        if let Some(index) = self.get_bookmark_index(image_hash) {
+            self.bookmarks.remove(index);
         } else {
-            self.bookmarks.insert(*image_hash);
+            self.bookmarks.push(*image_hash);
         }
 
         self.persist_bookmarks();
@@ -614,6 +614,10 @@ impl Gallery {
 
     fn is_bookmarked(&self, image_hash: &ImageHash) -> bool {
         self.bookmarks.contains(image_hash)
+    }
+
+    fn get_bookmark_index(&self, image_hash: &ImageHash) -> Option<usize> {
+        self.bookmarks.iter().position(|h| h == image_hash)
     }
 
     fn on_input_event(
