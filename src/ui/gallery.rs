@@ -104,7 +104,7 @@ pub struct Gallery {
     page: Page,
     focus_handle: FocusHandle,
     input: Entity<InputState>,
-    viewer: Option<ImageHash>,
+    lightbox: Option<ImageHash>,
 
     // Data
     roots: Vec<PathBuf>,
@@ -192,7 +192,7 @@ impl Gallery {
             rows: Vec::new(),
             tile_size: TILE_MIN,
             grid: ListState::new(0, ListAlignment::Top, px(0.)),
-            viewer: None,
+            lightbox: None,
             collapsed_groups: HashSet::new(),
             column_override: None,
             bookmarks: HashSet::new(),
@@ -426,17 +426,17 @@ impl Gallery {
     }
 
     fn open(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        self.show(hash, cx);
+        self.show_lightbox(hash, cx);
     }
 
-    fn show(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        self.viewer = Some(*hash);
+    fn show_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
+        self.lightbox = Some(*hash);
         self.deprioritize();
         cx.notify();
     }
 
-    fn close(&mut self, cx: &mut Context<Self>) {
-        self.viewer = None;
+    fn close_lightbox(&mut self, cx: &mut Context<Self>) {
+        self.lightbox = None;
         cx.notify();
     }
 
@@ -444,7 +444,7 @@ impl Gallery {
         if self.filtered_images.is_empty() {
             return;
         }
-        let Some(current) = self.viewer else { return };
+        let Some(current) = self.lightbox else { return };
 
         let pos = self.visible_position(&current).unwrap_or(0) as isize;
         let new_pos = pos + delta;
@@ -453,7 +453,7 @@ impl Gallery {
         let new_pos_index = new_pos.rem_euclid(len as isize) as usize;
         let next = self.filtered_images[new_pos_index];
 
-        self.show(&next, cx);
+        self.show_lightbox(&next, cx);
     }
 
     fn toggle_group(&mut self, group_hash: GroupHash, cx: &mut Context<Self>) {
@@ -494,8 +494,12 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(hash) = self.viewer {
+        if let Some(hash) = self.lightbox {
             self.toggle_bookmark(&hash, cx);
+        }
+
+        if self.page == Page::Bookmarks {
+            self.close_lightbox(cx);
         }
     }
 
@@ -510,9 +514,13 @@ impl Gallery {
     }
 
     fn on_open(&mut self, _: &actions::OpenLightbox, _: &mut Window, cx: &mut Context<Self>) {
+        if self.filtered_images.len() == 0 {
+            return;
+        }
+
         let first = match self.page {
             Page::Gallery => self
-                .candidate_images()
+                .filtered_images
                 .iter()
                 .find(|hash| {
                     let group = self
@@ -524,16 +532,16 @@ impl Gallery {
                     !is_collapsed
                 })
                 .copied(),
-            Page::Bookmarks => self.candidate_images().first().copied(),
+            Page::Bookmarks => self.filtered_images.first().copied(),
         };
 
         if let Some(hash) = first {
-            self.show(&hash, cx);
+            self.show_lightbox(&hash, cx);
         }
     }
 
     fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {
-        self.close(cx);
+        self.close_lightbox(cx);
     }
 
     fn on_zoom_in(&mut self, _: &actions::ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
@@ -574,6 +582,7 @@ impl Gallery {
     ) {
         match event {
             InputEvent::Change | InputEvent::PressEnter { .. } => {
+                cx.stop_propagation();
                 self.refresh(cx);
             }
             _ => {}
@@ -1050,7 +1059,7 @@ impl Render for Gallery {
                     el.child(self.render_grid(cx))
                 }
             })
-            .when_some(self.viewer, |el, hash| {
+            .when_some(self.lightbox, |el, hash| {
                 el.child(self.render_lightbox(&hash, cx))
             })
     }
