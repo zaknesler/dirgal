@@ -686,6 +686,7 @@ impl Gallery {
             return div().into_any_element();
         };
 
+        let is_only_row = index == 0;
         let is_last_row = index == self.rows.len() - 1;
 
         match row {
@@ -741,10 +742,12 @@ impl Gallery {
             }
             Row::Tiles(range) => {
                 let hashes = self.filtered_images[range].to_vec();
+
                 h_flex()
                     .w_full()
                     .px(px(GRID_OUTER_MARGIN / 2.0))
                     .gap(px(GRID_GAP))
+                    .when(is_only_row, |el| el.pt(px(GRID_OUTER_MARGIN / 2.0)))
                     .when_else(
                         is_last_row,
                         |el| el.pb(px(GRID_OUTER_MARGIN / 2.0)),
