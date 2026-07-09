@@ -35,7 +35,7 @@ const GRID_H_PADDING: f32 = 32.0;
 
 const NUM_PAGES: usize = 2;
 
-const GRID_CACHE_ITEMS: usize = 500;
+const GRID_CACHE_ITEMS: usize = 350;
 const LIGHTBOX_CACHE_ITEMS: usize = 10;
 
 const COLOR_ACCENT: u32 = 0xca3500;
@@ -162,7 +162,7 @@ impl Gallery {
             })
             .collect();
 
-        let concurrency = std::thread::available_parallelism()
+        let num_concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4)
             .min(8);
@@ -200,25 +200,25 @@ impl Gallery {
         let mut this = Self {
             state,
             page: Page::Gallery,
+            focus_handle,
+            input,
+            lightbox: None,
             roots: snapshot.roots,
             images: snapshot.images,
             image_index,
             filtered_images: Vec::new(),
+            rows: Vec::new(),
             groups: Vec::new(),
+            collapsed_groups: HashSet::new(),
+            bookmarks,
+            grid: ListState::new(0, ListAlignment::Top, px(0.)),
+            tile_size: TILE_MIN,
+            num_columns: 1,
+            column_override: None,
             thumbs: HashMap::new(),
             queue,
-            num_concurrency: concurrency,
-            input,
-            focus_handle,
             num_running: 0,
-            num_columns: 0,
-            rows: Vec::new(),
-            tile_size: TILE_MIN,
-            grid: ListState::new(0, ListAlignment::Top, px(0.)),
-            lightbox: None,
-            collapsed_groups: HashSet::new(),
-            column_override: None,
-            bookmarks,
+            num_concurrency,
         };
 
         this.process_jobs(cx);
@@ -285,7 +285,9 @@ impl Gallery {
     }
 
     fn image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
-        self.image_index.get(hash).and_then(|i| self.images.get(*i))
+        let hash = self.image_index.get(hash)?;
+
+        self.images.get(*hash)
     }
 
     fn tile_source(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
@@ -422,7 +424,7 @@ impl Gallery {
                 for group in &self.groups {
                     self.rows.push(Row::Header(group.hash));
                     if !self.collapsed_groups.contains(&group.hash) {
-                        for chunk in group.image_hashes.chunks(self.num_columns) {
+                        for chunk in group.image_hashes.chunks(self.num_columns.max(1)) {
                             self.rows.push(Row::Tiles(chunk.to_vec()));
                         }
                     }
@@ -430,7 +432,7 @@ impl Gallery {
             }
             Page::Bookmarks => {
                 self.groups.clear();
-                for chunk in self.filtered_images.chunks(self.num_columns) {
+                for chunk in self.filtered_images.chunks(self.num_columns.max(1)) {
                     self.rows.push(Row::Tiles(chunk.to_vec()));
                 }
             }
@@ -1066,8 +1068,6 @@ impl Gallery {
     }
 
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let grid = self.grid.clone();
-
         div()
             .image_cache(super::cache::simple_lru_cache(
                 super::CONTEXT_GRID,
@@ -1075,7 +1075,6 @@ impl Gallery {
             ))
             .flex_1()
             .min_h_0()
-            .p_4()
             .relative()
             .child(
                 list(
@@ -1091,7 +1090,7 @@ impl Gallery {
                     .left_0()
                     .right_0()
                     .bottom_0()
-                    .child(Scrollbar::vertical(&grid)),
+                    .child(Scrollbar::vertical(&self.grid)),
             )
     }
 }
