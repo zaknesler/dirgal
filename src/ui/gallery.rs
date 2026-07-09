@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 const TILE_MIN: f32 = 200.0;
 const GRID_GAP: f32 = 4.0;
-const GRID_H_PADDING: f32 = 32.0;
+const GRID_OUTER_MARGIN: f32 = 32.0;
 
 const NUM_PAGES: usize = 2;
 
@@ -347,7 +347,7 @@ impl Gallery {
     }
 
     fn get_grid_layout(&self, window: &Window) -> (usize, f32) {
-        let avail = window.viewport_size().width.as_f32() - GRID_H_PADDING;
+        let avail = window.viewport_size().width.as_f32() - GRID_OUTER_MARGIN;
         let cols = match self.column_override {
             Some(c) => c,
             None => (((avail + GRID_GAP) / (TILE_MIN + GRID_GAP)).floor() as usize).max(1),
@@ -689,11 +689,13 @@ impl Gallery {
                 h_flex()
                     .id(("header", group_hash.0))
                     .w_full()
-                    .px(px(GRID_H_PADDING / 2.0))
                     .items_center()
                     .gap_2()
-                    .pt_4()
-                    .when(!is_collapsed && !is_last_row, |el| el.pb_4())
+                    .px(px(GRID_OUTER_MARGIN / 2.0))
+                    .pt(px(GRID_OUTER_MARGIN / 2.0))
+                    .when(!is_collapsed || is_last_row, |el| {
+                        el.pb(px(GRID_OUTER_MARGIN / 2.0))
+                    })
                     .cursor_pointer()
                     .group("header")
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_hash, cx)))
@@ -726,9 +728,13 @@ impl Gallery {
             }
             Row::Tiles(hashes) => h_flex()
                 .w_full()
-                .px(px(GRID_H_PADDING / 2.0))
+                .px(px(GRID_OUTER_MARGIN / 2.0))
                 .gap(px(GRID_GAP))
-                .when_else(is_last_row, |el| el.pb_4(), |el| el.pb(px(GRID_GAP)))
+                .when_else(
+                    is_last_row,
+                    |el| el.pb(px(GRID_OUTER_MARGIN / 2.0)),
+                    |el| el.pb(px(GRID_GAP)),
+                )
                 .children(
                     hashes
                         .into_iter()
