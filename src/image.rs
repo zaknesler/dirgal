@@ -101,7 +101,7 @@ pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
     }
 
     found.sort_by(|a, b| {
-        (a.path.parent(), a.path.file_name()).cmp(&(b.path.parent(), b.path.file_name()))
+        natord::compare(&a.path.to_string_lossy(), &b.path.to_string_lossy())
     });
 
     found
