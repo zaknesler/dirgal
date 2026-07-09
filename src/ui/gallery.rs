@@ -30,12 +30,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const TILE_MIN: f32 = 200.0;
-const GRID_GAP: f32 = 4.0;
+const GRID_GAP: f32 = 6.0;
 const GRID_OUTER_MARGIN: f32 = 32.0;
 
 const NUM_PAGES: usize = 2;
 
-const GRID_CACHE_ITEMS: usize = 350;
+const GRID_CACHE_ITEMS: usize = 300;
 const LIGHTBOX_CACHE_ITEMS: usize = 10;
 
 const COLOR_ACCENT: u32 = 0xca3500;
@@ -75,7 +75,18 @@ impl From<usize> for Page {
 #[derive(Clone)]
 enum Row {
     Header(GroupHash),
-    Tiles(Vec<ImageHash>),
+    Tiles(std::ops::Range<usize>),
+}
+
+impl Row {
+    fn chunk_tiles(offset: usize, len: usize, cols: usize) -> impl Iterator<Item = Row> {
+        (0..len).step_by(cols).map(move |start| {
+            let end = (start + cols).min(len);
+            let a = offset + start;
+            let b = offset + end;
+            Row::Tiles(a..b)
+        })
+    }
 }
 
 struct Group {
@@ -105,6 +116,7 @@ enum ThumbState {
     Failed,
 }
 
+#[allow(dead_code)]
 pub struct Gallery {
     state: Entity<AppState>,
 
@@ -418,23 +430,26 @@ impl Gallery {
 
         self.rows.clear();
 
+        let cols = self.num_columns.max(1);
+
         match self.page {
             Page::Gallery => {
                 self.groups = self.get_computed_groups();
+
+                let mut offset = 0;
                 for group in &self.groups {
                     self.rows.push(Row::Header(group.hash));
+                    let len = group.image_hashes.len();
                     if !self.collapsed_groups.contains(&group.hash) {
-                        for chunk in group.image_hashes.chunks(self.num_columns.max(1)) {
-                            self.rows.push(Row::Tiles(chunk.to_vec()));
-                        }
+                        self.rows.extend(Row::chunk_tiles(offset, len, cols));
                     }
+                    offset += len;
                 }
             }
             Page::Bookmarks => {
                 self.groups.clear();
-                for chunk in self.filtered_images.chunks(self.num_columns.max(1)) {
-                    self.rows.push(Row::Tiles(chunk.to_vec()));
-                }
+                self.rows
+                    .extend(Row::chunk_tiles(0, self.filtered_images.len(), cols));
             }
         }
 
@@ -726,21 +741,24 @@ impl Gallery {
                     .child(Tag::new().small().child(format!("{count}")))
                     .into_any_element()
             }
-            Row::Tiles(hashes) => h_flex()
-                .w_full()
-                .px(px(GRID_OUTER_MARGIN / 2.0))
-                .gap(px(GRID_GAP))
-                .when_else(
-                    is_last_row,
-                    |el| el.pb(px(GRID_OUTER_MARGIN / 2.0)),
-                    |el| el.pb(px(GRID_GAP)),
-                )
-                .children(
-                    hashes
-                        .into_iter()
-                        .map(|ref hash| self.render_thumb(hash, cx)),
-                )
-                .into_any_element(),
+            Row::Tiles(range) => {
+                let hashes = self.filtered_images[range].to_vec();
+                h_flex()
+                    .w_full()
+                    .px(px(GRID_OUTER_MARGIN / 2.0))
+                    .gap(px(GRID_GAP))
+                    .when_else(
+                        is_last_row,
+                        |el| el.pb(px(GRID_OUTER_MARGIN / 2.0)),
+                        |el| el.pb(px(GRID_GAP)),
+                    )
+                    .children(
+                        hashes
+                            .into_iter()
+                            .map(|ref hash| self.render_thumb(hash, cx)),
+                    )
+                    .into_any_element()
+            }
         }
     }
 

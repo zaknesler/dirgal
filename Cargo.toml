@@ -4,16 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+directories = "6.0.0"
 dirs = "6.0.0"
+figment = { version = "0.10.19", features = ["toml"] }
+futures = "0.3.32"
+humansize = "2.1.3"
 ignore = "0.4.27"
 image = "0.25.10"
-seahash = "4.1.0"
-humansize = "2.1.3"
-thiserror = "2.0.18"
-directories = "6.0.0"
 rust-embed = "8.11.0"
-figment = { version = "0.10.19", features = ["toml"] }
+seahash = "4.1.0"
 serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
 toml = "1.1.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -21,4 +22,3 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac10
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
-futures = "0.3.32"
