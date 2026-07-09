@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const TILE_MIN: f32 = 200.0;
-const GRID_GAP: f32 = 12.0;
+const GRID_GAP: f32 = 4.0;
 const GRID_H_PADDING: f32 = 32.0;
 
 const NUM_PAGES: usize = 2;
@@ -251,7 +251,7 @@ impl Gallery {
     }
 
     fn get_computed_groups(&self) -> Vec<Group> {
-        // Get the parent directory for each image
+        // Map of image hash to their parent directory
         let hash_to_parent: HashMap<ImageHash, PathBuf> = self
             .images
             .iter()
@@ -288,7 +288,6 @@ impl Gallery {
 
     fn get_image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
         let hash = self.image_index.get(hash)?;
-
         self.images.get(*hash)
     }
 
@@ -688,6 +687,7 @@ impl Gallery {
                 h_flex()
                     .id(("header", group_hash.0))
                     .w_full()
+                    .px(px(GRID_H_PADDING / 2.0))
                     .items_center()
                     .gap_2()
                     .when(!is_collapsed, |el| el.pb_4())
@@ -724,7 +724,8 @@ impl Gallery {
             }
             Row::Tiles(hashes) => h_flex()
                 .w_full()
-                .gap_2()
+                .px(px(GRID_H_PADDING / 2.0))
+                .gap(px(GRID_GAP))
                 .pb_2()
                 .children(
                     hashes
@@ -737,7 +738,7 @@ impl Gallery {
 
     fn render_thumb(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
         let source = self.get_thumb_path(hash, cx);
-        let tile = px(self.tile_size);
+        let size = px(self.tile_size);
 
         let hash = *hash;
 
@@ -745,8 +746,7 @@ impl Gallery {
             .key_context(super::CONTEXT_GALLERY)
             .id(hash.0 as usize)
             .flex_none()
-            .w(tile)
-            .h(tile)
+            .size(size)
             .rounded_md()
             .overflow_hidden()
             .border_1()
@@ -1112,9 +1112,12 @@ impl Render for Gallery {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (columns, tile_size) = self.get_grid_layout(window);
 
-        if (columns != self.num_columns || (tile_size - self.tile_size).abs() > 0.5)
-            && !self.images.is_empty()
-        {
+        let cols_changed = columns != self.num_columns;
+
+        // Check if tile size has changed by more than a sub-pixel threshold
+        let tile_size_changed = (tile_size - self.tile_size).abs() > 0.5;
+
+        if (cols_changed || tile_size_changed) && !self.images.is_empty() {
             self.set_layout(columns, tile_size, cx);
         }
 
