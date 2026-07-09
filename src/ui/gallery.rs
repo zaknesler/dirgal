@@ -6,6 +6,7 @@ use crate::{
         actions,
         state::{AppState, SharedAppState},
     },
+    util::format_num,
 };
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListState, ObjectFit,
@@ -835,10 +836,13 @@ impl Gallery {
         let count_label = match self.page {
             Page::Gallery => format!(
                 "{} images in {} folders",
-                self.filtered_images.len(),
-                self.groups.len()
+                format_num(self.filtered_images.len()),
+                format_num(self.groups.len())
             ),
-            Page::Bookmarks => format!("{} bookmarked images", self.filtered_images.len()),
+            Page::Bookmarks => format!(
+                "{} bookmarked images",
+                format_num(self.filtered_images.len())
+            ),
         };
 
         let search = || {

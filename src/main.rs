@@ -8,6 +8,7 @@ mod hash;
 mod image;
 mod path;
 mod ui;
+mod util;
 
 fn main() -> error::AppResult<()> {
     init_tracing()?;
