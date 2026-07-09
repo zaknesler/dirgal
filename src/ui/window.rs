@@ -36,7 +36,7 @@ pub fn create_window(state: AppState) {
 
             let options = WindowOptions {
                 titlebar: Some(TitlebarOptions {
-                    title: Some(SharedString::from("Gallery")),
+                    title: Some(SharedString::from("dirgal")),
                     ..Default::default()
                 }),
                 ..Default::default()

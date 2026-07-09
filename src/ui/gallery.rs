@@ -195,20 +195,7 @@ impl Gallery {
             .map(|(i, e)| (ImageHash(e.hash), i))
             .collect();
 
-        // Prefill bookmarks from paths in config
-        let bookmarks = snapshot
-            .config
-            .bookmarks
-            .clone()
-            .into_iter()
-            .filter_map(|path| {
-                snapshot
-                    .images
-                    .iter()
-                    .find(|i| i.src_path.as_ref() == path)
-                    .map(|image| ImageHash(image.hash))
-            })
-            .collect::<Vec<_>>();
+        let bookmarks = Self::bookmarks_from_config(&snapshot.config.bookmarks, &snapshot.images);
 
         let mut this = Self {
             state,
@@ -236,6 +223,21 @@ impl Gallery {
 
         this.process_jobs(cx);
         this
+    }
+
+    fn bookmarks_from_config(paths: &[PathBuf], images: &[ImageEntry]) -> Vec<ImageHash> {
+        let mut paths = paths.to_vec();
+        paths.sort_by(|a, b| natord::compare(&a.to_string_lossy(), &b.to_string_lossy()));
+
+        paths
+            .into_iter()
+            .filter_map(|path| {
+                images
+                    .iter()
+                    .find(|i| i.src_path.as_ref() == path)
+                    .map(|image| ImageHash(image.hash))
+            })
+            .collect()
     }
 
     fn get_candidate_images(&self) -> Vec<ImageHash> {
@@ -460,9 +462,8 @@ impl Gallery {
 
     fn deprioritize(&mut self) {
         for job in &self.queue {
-            if job.priority == JobPriority::Urgent
-                && matches!(self.thumbs.get(&job.image_hash), Some(ThumbState::Queued))
-            {
+            let is_queued = matches!(self.thumbs.get(&job.image_hash), Some(ThumbState::Queued));
+            if is_queued && job.priority == JobPriority::Urgent {
                 self.thumbs.insert(job.image_hash, ThumbState::Unknown);
             }
         }
@@ -476,11 +477,7 @@ impl Gallery {
         self.refresh(cx);
     }
 
-    fn open(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        self.show_lightbox(hash, cx);
-    }
-
-    fn show_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
+    fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
         self.lightbox = Some(*hash);
         self.deprioritize();
         cx.notify();
@@ -504,7 +501,7 @@ impl Gallery {
         let new_pos_index = new_pos.rem_euclid(len as isize) as usize;
         let next = self.filtered_images[new_pos_index];
 
-        self.show_lightbox(&next, cx);
+        self.open_lightbox(&next, cx);
     }
 
     fn toggle_group(&mut self, group_hash: GroupHash, cx: &mut Context<Self>) {
@@ -607,7 +604,7 @@ impl Gallery {
         };
 
         if let Some(hash) = first {
-            self.show_lightbox(&hash, cx);
+            self.open_lightbox(&hash, cx);
         }
     }
 
@@ -739,7 +736,7 @@ impl Gallery {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(Breadcrumb::new().children(segments)),
                     )
-                    .child(Tag::new().small().child(format!("{count}")))
+                    .child(Tag::new().small().child(format!("{}", format_num(count))))
                     .into_any_element()
             }
             Row::Tiles(range) => {
@@ -782,7 +779,7 @@ impl Gallery {
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
-                this.open(&hash, cx)
+                this.open_lightbox(&hash, cx)
             }))
             .context_menu(move |this, _, _| {
                 this.check_side(gpui_component::Side::Right)
@@ -918,12 +915,16 @@ impl Gallery {
         let bytes = format_bytes(entry.bytes);
 
         let position = self.get_visible_position(hash).map(|p| p + 1).unwrap_or(0);
-        let counter = format!("{} / {}", position, self.filtered_images.len());
+        let counter = format!(
+            "{} / {}",
+            format_num(position),
+            format_num(self.filtered_images.len())
+        );
 
         let counter = || {
             Tag::secondary()
                 .flex_none()
-                .w_20()
+                .min_w_20()
                 .justify_center()
                 .child(counter)
         };

@@ -7,7 +7,6 @@ authors = ["Zak Nesler"]
 repository = "https://github.com/zaknesler/dirgal"
 license = "MIT"
 
-
 [dependencies]
 directories = "6.0.0"
 dirs = "6.0.0"
