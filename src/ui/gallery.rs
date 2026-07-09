@@ -73,7 +73,7 @@ impl From<usize> for Page {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum Row {
     Header(GroupHash),
     Tiles(std::ops::Range<usize>),
@@ -211,7 +211,7 @@ impl Gallery {
             groups: Vec::new(),
             collapsed_groups: HashSet::new(),
             bookmarks,
-            grid: ListState::new(0, ListAlignment::Top, px(0.)),
+            grid: ListState::new(0, ListAlignment::Top, px(600.)),
             tile_size: TILE_MIN,
             num_columns: 1,
             column_override: None,
@@ -431,8 +431,7 @@ impl Gallery {
         let candidates = self.get_candidate_images();
         self.filtered_images = self.get_visible_hashes(&candidates, &query);
 
-        self.rows.clear();
-
+        let old_rows = std::mem::take(&mut self.rows);
         let cols = self.num_columns.max(1);
 
         match self.page {
@@ -456,8 +455,27 @@ impl Gallery {
             }
         }
 
-        self.grid = ListState::new(self.rows.len(), ListAlignment::Top, px(600.));
+        self.splice_changed_rows(&old_rows);
         cx.notify();
+    }
+
+    /// Splice only the changed middle range into the list state to perserve scroll position
+    fn splice_changed_rows(&mut self, old_rows: &[Row]) {
+        let unchanged_head = std::iter::zip(old_rows, &self.rows)
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        let unchanged_tail = std::iter::zip(
+            old_rows[unchanged_head..].iter().rev(),
+            self.rows[unchanged_head..].iter().rev(),
+        )
+        .take_while(|(a, b)| a == b)
+        .count();
+
+        self.grid.splice(
+            unchanged_head..old_rows.len() - unchanged_tail,
+            self.rows.len() - unchanged_head - unchanged_tail,
+        );
     }
 
     fn deprioritize(&mut self) {
@@ -737,7 +755,7 @@ impl Gallery {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(Breadcrumb::new().children(segments)),
                     )
-                    .child(Tag::new().small().child(format!("{}", format_num(count))))
+                    .child(Tag::new().small().child(format_num(count).to_string()))
                     .into_any_element()
             }
             Row::Tiles(range) => {
