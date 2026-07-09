@@ -673,6 +673,8 @@ impl Gallery {
             return div().into_any_element();
         };
 
+        let is_last_row = index == self.rows.len() - 1;
+
         match row {
             Row::Header(group_hash) => {
                 let group = self
@@ -690,8 +692,8 @@ impl Gallery {
                     .px(px(GRID_H_PADDING / 2.0))
                     .items_center()
                     .gap_2()
-                    .when(!is_collapsed, |el| el.pb_4())
-                    .when(index != 0, |el| el.pt_4())
+                    .pt_4()
+                    .when(!is_collapsed && !is_last_row, |el| el.pb_4())
                     .cursor_pointer()
                     .group("header")
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_hash, cx)))
@@ -726,7 +728,7 @@ impl Gallery {
                 .w_full()
                 .px(px(GRID_H_PADDING / 2.0))
                 .gap(px(GRID_GAP))
-                .pb_2()
+                .when_else(is_last_row, |el| el.pb_4(), |el| el.pb(px(GRID_GAP)))
                 .children(
                     hashes
                         .into_iter()
