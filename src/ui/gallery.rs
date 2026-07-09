@@ -225,22 +225,24 @@ impl Gallery {
         this
     }
 
-    fn candidate_images(&self) -> Vec<ImageHash> {
+    fn get_candidate_images(&self) -> Vec<ImageHash> {
         match self.page {
             Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
             Page::Bookmarks => self.bookmarks.iter().cloned().collect(),
         }
     }
 
-    fn compute_visible(&self, candidates: &[ImageHash], query: &str) -> Vec<ImageHash> {
+    fn get_visible_hashes(&self, candidates: &[ImageHash], query: &str) -> Vec<ImageHash> {
         if query.is_empty() {
             return candidates.to_vec();
         }
+
         let query = query.to_lowercase();
+
         candidates
             .iter()
             .filter(|hash| {
-                self.image_entry(hash)
+                self.get_image_entry(hash)
                     .map(|e| e.src_path.to_string_lossy().to_lowercase().contains(&query))
                     .unwrap_or(false)
             })
@@ -248,7 +250,7 @@ impl Gallery {
             .collect()
     }
 
-    fn compute_groups(&self) -> Vec<Group> {
+    fn get_computed_groups(&self) -> Vec<Group> {
         // Get the parent directory for each image
         let hash_to_parent: HashMap<ImageHash, PathBuf> = self
             .images
@@ -280,17 +282,17 @@ impl Gallery {
         groups
     }
 
-    fn visible_position(&self, hash: &ImageHash) -> Option<usize> {
+    fn get_visible_position(&self, hash: &ImageHash) -> Option<usize> {
         self.filtered_images.iter().position(|&i| i == *hash)
     }
 
-    fn image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
+    fn get_image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
         let hash = self.image_index.get(hash)?;
 
         self.images.get(*hash)
     }
 
-    fn tile_source(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
+    fn get_thumb_path(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
         let state = self
             .thumbs
             .get(hash)
@@ -301,10 +303,10 @@ impl Gallery {
 
         match state {
             ThumbState::Ready(p) => Some(p),
-            ThumbState::Failed => self.image_entry(&hash).map(|e| e.src_path.clone()),
+            ThumbState::Failed => self.get_image_entry(&hash).map(|e| e.src_path.clone()),
             ThumbState::Queued | ThumbState::Generating => None,
             ThumbState::Unknown => {
-                let entry = self.image_entry(&hash)?.clone();
+                let entry = self.get_image_entry(&hash)?.clone();
                 if entry.bytes < SMALL_FILE_BYTES {
                     self.thumbs
                         .insert(hash, ThumbState::Ready(entry.src_path.clone()));
@@ -326,7 +328,7 @@ impl Gallery {
         }
     }
 
-    fn next_job(&mut self) -> Option<ImageHash> {
+    fn get_next_job(&mut self) -> Option<ImageHash> {
         loop {
             let Job {
                 image_hash: image,
@@ -345,12 +347,29 @@ impl Gallery {
         }
     }
 
+    fn get_grid_layout(&self, window: &Window) -> (usize, f32) {
+        let avail = window.viewport_size().width.as_f32() - GRID_H_PADDING;
+        let cols = match self.column_override {
+            Some(c) => c,
+            None => (((avail + GRID_GAP) / (TILE_MIN + GRID_GAP)).floor() as usize).max(1),
+        };
+
+        let tile = ((avail - cols.saturating_sub(1) as f32 * GRID_GAP) / cols as f32).max(30.0);
+
+        (cols, tile)
+    }
+
     fn process_jobs(&mut self, cx: &mut Context<Self>) {
         while self.num_running < self.num_concurrency {
-            let Some(hash) = self.next_job() else { return };
+            let Some(hash) = self.get_next_job() else {
+                return;
+            };
 
             self.thumbs.insert(hash, ThumbState::Generating);
-            let image = self.image_entry(&hash).expect("image should exist").clone();
+            let image = self
+                .get_image_entry(&hash)
+                .expect("image should exist")
+                .clone();
 
             self.num_running += 1;
 
@@ -367,7 +386,7 @@ impl Gallery {
                         match result {
                             Ok(()) => {
                                 let p = gallery
-                                    .image_entry(&hash)
+                                    .get_image_entry(&hash)
                                     .expect("image should exist")
                                     .thumb_path
                                     .clone();
@@ -375,7 +394,7 @@ impl Gallery {
                             }
                             Err(e) => {
                                 let path = gallery
-                                    .image_entry(&hash)
+                                    .get_image_entry(&hash)
                                     .map(|e| e.src_path.display().to_string())
                                     .unwrap_or_default();
                                 tracing::warn!(path, error = %e, "thumbnail generation failed");
@@ -393,34 +412,16 @@ impl Gallery {
         }
     }
 
-    fn grid_layout(&self, window: &Window) -> (usize, f32) {
-        let avail = window.viewport_size().width.as_f32() - GRID_H_PADDING;
-        let cols = match self.column_override {
-            Some(c) => c,
-            None => (((avail + GRID_GAP) / (TILE_MIN + GRID_GAP)).floor() as usize).max(1),
-        };
-
-        let tile = ((avail - cols.saturating_sub(1) as f32 * GRID_GAP) / cols as f32).max(30.0);
-
-        (cols, tile)
-    }
-
-    fn set_layout(&mut self, columns: usize, tile_size: f32, cx: &mut Context<Self>) {
-        self.num_columns = columns;
-        self.tile_size = tile_size;
-        self.refresh(cx);
-    }
-
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
-        let candidates = self.candidate_images();
-        self.filtered_images = self.compute_visible(&candidates, &query);
+        let candidates = self.get_candidate_images();
+        self.filtered_images = self.get_visible_hashes(&candidates, &query);
 
         self.rows.clear();
 
         match self.page {
             Page::Gallery => {
-                self.groups = self.compute_groups();
+                self.groups = self.get_computed_groups();
                 for group in &self.groups {
                     self.rows.push(Row::Header(group.hash));
                     if !self.collapsed_groups.contains(&group.hash) {
@@ -454,6 +455,12 @@ impl Gallery {
         self.queue.retain(|j| j.priority == JobPriority::Deferred);
     }
 
+    fn set_layout(&mut self, columns: usize, tile_size: f32, cx: &mut Context<Self>) {
+        self.num_columns = columns;
+        self.tile_size = tile_size;
+        self.refresh(cx);
+    }
+
     fn open(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
         self.show_lightbox(hash, cx);
     }
@@ -475,7 +482,7 @@ impl Gallery {
         }
         let Some(current) = self.lightbox else { return };
 
-        let pos = self.visible_position(&current).unwrap_or(0) as isize;
+        let pos = self.get_visible_position(&current).unwrap_or(0) as isize;
         let new_pos = pos + delta;
 
         let len = self.filtered_images.len();
@@ -527,7 +534,7 @@ impl Gallery {
         let current: Vec<PathBuf> = self
             .bookmarks
             .iter()
-            .filter_map(|hash| self.image_entry(hash))
+            .filter_map(|hash| self.get_image_entry(hash))
             .map(|entry| entry.src_path.to_path_buf())
             .collect();
 
@@ -729,7 +736,7 @@ impl Gallery {
     }
 
     fn render_thumb(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
-        let source = self.tile_source(hash, cx);
+        let source = self.get_thumb_path(hash, cx);
         let tile = px(self.tile_size);
 
         let hash = *hash;
@@ -876,11 +883,11 @@ impl Gallery {
     }
 
     fn render_info_bar(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
-        let entry = self.image_entry(hash).expect("image should exist");
+        let entry = self.get_image_entry(hash).expect("image should exist");
         let name = label_for(&self.roots, &entry.src_path);
         let bytes = format_bytes(entry.bytes);
 
-        let position = self.visible_position(hash).map(|p| p + 1).unwrap_or(0);
+        let position = self.get_visible_position(hash).map(|p| p + 1).unwrap_or(0);
         let counter = format!("{} / {}", position, self.filtered_images.len());
 
         let counter = || {
@@ -966,7 +973,7 @@ impl Gallery {
         hash: &ImageHash,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let entry = self.image_entry(hash).expect("image should exist");
+        let entry = self.get_image_entry(hash).expect("image should exist");
         let path = entry.src_path.clone();
 
         let thumb = match self.thumbs.get(hash) {
@@ -1103,7 +1110,7 @@ impl Focusable for Gallery {
 
 impl Render for Gallery {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (columns, tile_size) = self.grid_layout(window);
+        let (columns, tile_size) = self.get_grid_layout(window);
 
         if (columns != self.num_columns || (tile_size - self.tile_size).abs() > 0.5)
             && !self.images.is_empty()
