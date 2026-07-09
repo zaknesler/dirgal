@@ -459,7 +459,7 @@ impl Gallery {
         cx.notify();
     }
 
-    /// Splice only the changed middle range into the list state to perserve scroll position
+    /// Splice only the changed middle range into the list state to preserve scroll position
     fn splice_changed_rows(&mut self, old_rows: &[Row]) {
         let unchanged_head = std::iter::zip(old_rows, &self.rows)
             .take_while(|(a, b)| a == b)
