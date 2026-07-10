@@ -541,10 +541,14 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.collapsed_groups.is_empty() {
-            self.collapsed_groups = self.groups.iter().map(|g| g.hash).collect();
-        } else {
+        if self.page == Page::Bookmarks {
+            return;
+        }
+
+        if self.collapsed_groups.len() == self.groups.len() {
             self.collapsed_groups.clear();
+        } else {
+            self.collapsed_groups = self.groups.iter().map(|g| g.hash).collect();
         }
 
         self.refresh(cx);
