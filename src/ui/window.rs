@@ -37,37 +37,41 @@ pub fn create_window(state: AppState) {
 }
 
 fn register_actions(cx: &mut App) {
+    macro_rules! bind_keys {
+        ($context:expr, $(($key:expr, $action:expr)),* $(,)?) => {
+            cx.bind_keys([$( KeyBinding::new($key, $action, $context) ),*]);
+        };
+    }
+
     cx.on_action(|_: &actions::Quit, cx| cx.quit());
 
     // Global
-    cx.bind_keys([KeyBinding::new("secondary-q", actions::Quit, None)]);
+    bind_keys!(
+        None,
+        ("secondary-q", actions::Quit),
+        ("ctrl-shift-w", actions::Quit)
+    );
 
     // Gallery
-    cx.bind_keys([
-        KeyBinding::new("ctrl-tab", actions::NextPage, Some(CONTEXT_GALLERY)),
-        KeyBinding::new("ctrl-shift-tab", actions::PrevPage, Some(CONTEXT_GALLERY)),
-        KeyBinding::new("escape", actions::CloseLightbox, None),
-        KeyBinding::new("secondary-k", actions::FocusSearch, Some(CONTEXT_GALLERY)),
-    ]);
+    bind_keys!(
+        Some(CONTEXT_GALLERY),
+        ("ctrl-tab", actions::NextPage),
+        ("ctrl-shift-tab", actions::PrevPage),
+        ("escape", actions::CloseLightbox),
+        ("secondary-k", actions::FocusSearch),
+    );
 
     // Gallery (unfocused)
-    cx.bind_keys([
-        KeyBinding::new("left", actions::Prev, Some(CONTEXT_GALLERY_UNFOCUSED)),
-        KeyBinding::new("right", actions::Next, Some(CONTEXT_GALLERY_UNFOCUSED)),
-        KeyBinding::new("g", actions::OpenLightbox, Some(CONTEXT_GALLERY_UNFOCUSED)),
-        KeyBinding::new(
-            "b",
-            actions::Bookmark::Current,
-            Some(CONTEXT_GALLERY_UNFOCUSED),
-        ),
-        KeyBinding::new(
-            "o",
-            actions::OpenInFinder::Current,
-            Some(CONTEXT_GALLERY_UNFOCUSED),
-        ),
-        KeyBinding::new("=", actions::ZoomIn, Some(CONTEXT_GALLERY_UNFOCUSED)),
-        KeyBinding::new("-", actions::ZoomOut, Some(CONTEXT_GALLERY_UNFOCUSED)),
-        KeyBinding::new("0", actions::ZoomReset, Some(CONTEXT_GALLERY_UNFOCUSED)),
-        KeyBinding::new("c", actions::CollapseAll, Some(CONTEXT_GALLERY_UNFOCUSED)),
-    ]);
+    bind_keys!(
+        Some(CONTEXT_GALLERY_UNFOCUSED),
+        ("left", actions::Prev),
+        ("right", actions::Next),
+        ("g", actions::OpenLightbox),
+        ("b", actions::Bookmark::Current),
+        ("o", actions::OpenInFinder::Current),
+        ("=", actions::ZoomIn),
+        ("-", actions::ZoomOut),
+        ("0", actions::ZoomReset),
+        ("c", actions::CollapseAll),
+    );
 }
