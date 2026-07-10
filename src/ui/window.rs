@@ -1,9 +1,9 @@
 use crate::ui::{
-    CONTEXT_GALLERY, CONTEXT_GALLERY_UNFOCUSED, actions,
+    actions,
     gallery::Gallery,
     state::{AppState, SharedAppState},
 };
-use gpui::{App, AppContext as _, KeyBinding, SharedString, TitlebarOptions, WindowOptions};
+use gpui::{App, AppContext as _, KeyBinding, TitlebarOptions, WindowOptions};
 
 #[tracing::instrument(skip(state))]
 pub fn create_window(state: AppState) {
@@ -19,8 +19,9 @@ pub fn create_window(state: AppState) {
             register_actions(cx);
 
             let options = WindowOptions {
+                app_id: Some("dirgal".into()),
                 titlebar: Some(TitlebarOptions {
-                    title: Some(SharedString::from("dirgal")),
+                    title: Some("dirgal".into()),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -54,7 +55,7 @@ fn register_actions(cx: &mut App) {
 
     // Gallery
     bind_keys!(
-        Some(CONTEXT_GALLERY),
+        Some(crate::ui::CONTEXT_GALLERY),
         ("ctrl-tab", actions::NextPage),
         ("ctrl-shift-tab", actions::PrevPage),
         ("escape", actions::CloseLightbox),
@@ -63,7 +64,7 @@ fn register_actions(cx: &mut App) {
 
     // Gallery (unfocused)
     bind_keys!(
-        Some(CONTEXT_GALLERY_UNFOCUSED),
+        Some(crate::ui::CONTEXT_GALLERY_UNFOCUSED),
         ("left", actions::Prev),
         ("right", actions::Next),
         ("g", actions::OpenLightbox),
