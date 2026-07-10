@@ -49,3 +49,8 @@ pub fn group_segments(roots: &[PathBuf], parent: &Path) -> Vec<SharedString> {
 
     segments
 }
+
+/// Compare two paths using natural ordering
+pub fn compare_paths(a: &Path, b: &Path) -> std::cmp::Ordering {
+    natord::compare(&a.to_string_lossy(), &b.to_string_lossy())
+}

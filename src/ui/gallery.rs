@@ -150,7 +150,7 @@ impl Gallery {
 
     fn bookmarks_from_config(paths: &[PathBuf], images: &[ImageEntry]) -> Vec<ImageHash> {
         let mut paths = paths.to_vec();
-        paths.sort_by(|a, b| natord::compare(&a.to_string_lossy(), &b.to_string_lossy()));
+        paths.sort_by(|a, b| crate::path::compare_paths(&a, &b));
 
         paths
             .into_iter()
@@ -495,11 +495,11 @@ impl Gallery {
             self.bookmarks.push(*image_hash);
         }
 
-        self.persist_bookmarks();
+        self.persist_bookmarks(cx);
         self.refresh(cx);
     }
 
-    fn persist_bookmarks(&self) {
+    fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
         // Leave other bookmarks intact
         let loaded_paths: HashSet<&Path> =
             self.images.iter().map(|e| e.src_path.as_ref()).collect();
@@ -517,7 +517,15 @@ impl Gallery {
                 config
                     .bookmarks
                     .retain(|p| !loaded_paths.contains(p.as_path()));
+
                 config.bookmarks.extend(current);
+
+                config
+                    .bookmarks
+                    .sort_by(|a, b| crate::path::compare_paths(a, b));
+
+                self.bookmarks = Self::bookmarks_from_config(&config.bookmarks, &self.images);
+                cx.notify();
 
                 if let Err(e) = config.save() {
                     tracing::warn!(error = %e, "failed to save bookmarks to config");

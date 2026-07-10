@@ -100,7 +100,7 @@ pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
         }
     }
 
-    found.sort_by(|a, b| natord::compare(&a.path.to_string_lossy(), &b.path.to_string_lossy()));
+    found.sort_by(|a, b| crate::path::compare_paths(&a.path, &b.path));
 
     found
         .into_iter()
