@@ -2,11 +2,9 @@ use crate::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES, format_bytes},
     path::{group_segments, label_for},
-    ui::{
-        actions,
-        state::{AppState, SharedAppState},
-    },
-    util::format_num,
+    ui::model::*,
+    ui::*,
+    util,
 };
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListState, ObjectFit,
@@ -42,84 +40,9 @@ const LIGHTBOX_CACHE_ITEMS: usize = 10;
 const COLOR_ACCENT: u32 = 0xca3500;
 const COLOR_BACKDROP: u32 = 0x0a0a0af0;
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ImageHash(u64);
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct GroupHash(u64);
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Page {
-    Gallery,
-    Bookmarks,
-}
-
-impl From<Page> for usize {
-    fn from(page: Page) -> Self {
-        match page {
-            Page::Gallery => 0,
-            Page::Bookmarks => 1,
-        }
-    }
-}
-
-impl From<usize> for Page {
-    fn from(index: usize) -> Self {
-        match index {
-            0 => Page::Gallery,
-            1 => Page::Bookmarks,
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[derive(Clone, PartialEq)]
-enum Row {
-    Header(GroupHash),
-    Tiles(std::ops::Range<usize>),
-}
-
-impl Row {
-    fn chunk_tiles(offset: usize, len: usize, cols: usize) -> impl Iterator<Item = Row> {
-        (0..len).step_by(cols).map(move |start| {
-            let end = (start + cols).min(len);
-            let a = offset + start;
-            let b = offset + end;
-            Row::Tiles(a..b)
-        })
-    }
-}
-
-struct Group {
-    hash: GroupHash,
-    path: PathBuf,
-    image_hashes: Vec<ImageHash>,
-}
-
-#[derive(Clone, Copy)]
-struct Job {
-    image_hash: ImageHash,
-    priority: JobPriority,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum JobPriority {
-    Urgent,
-    Deferred,
-}
-
-#[derive(Clone)]
-enum ThumbState {
-    Unknown,
-    Queued,
-    Generating,
-    Ready(Arc<Path>),
-    Failed,
-}
-
 #[allow(dead_code)]
 pub struct Gallery {
-    state: Entity<AppState>,
+    state: Entity<state::AppState>,
 
     // Navigation
     page: Page,
@@ -156,7 +79,7 @@ impl Gallery {
     }
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let state = SharedAppState::from_app(cx).entity().clone();
+        let state = state::SharedAppState::from_app(cx).entity().clone();
 
         cx.observe(&state, |this, _, cx| {
             this.refresh(cx);
@@ -530,18 +453,38 @@ impl Gallery {
         self.refresh(cx);
     }
 
-    fn on_bookmark_active(
-        &mut self,
-        _: &actions::Bookmark,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(hash) = self.lightbox {
-            self.toggle_bookmark(&hash, cx);
+    fn on_bookmark(&mut self, action: &actions::Bookmark, _: &mut Window, cx: &mut Context<Self>) {
+        match action {
+            actions::Bookmark::Current => {
+                if let Some(hash) = self.lightbox {
+                    self.toggle_bookmark(&hash, cx);
+                }
+            }
+            actions::Bookmark::Thumb(hash) => {
+                self.toggle_bookmark(hash, cx);
+            }
         }
 
         if self.page == Page::Bookmarks {
             self.close_lightbox(cx);
+        }
+    }
+
+    fn on_open_in_finder(
+        &mut self,
+        action: &actions::OpenInFinder,
+        _: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        let path = match action {
+            actions::OpenInFinder::Current => self
+                .lightbox
+                .and_then(|hash| self.get_image_entry(&hash))
+                .map(|e| e.src_path.to_path_buf()),
+            actions::OpenInFinder::Path(p) => Some(p.clone()),
+        };
+        if let Some(p) = path {
+            util::reveal_in_file_manager(&p);
         }
     }
 
@@ -755,7 +698,11 @@ impl Gallery {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(Breadcrumb::new().children(segments)),
                     )
-                    .child(Tag::new().small().child(format_num(count).to_string()))
+                    .child(
+                        Tag::new()
+                            .small()
+                            .child(util::format_num(count).to_string()),
+                    )
                     .into_any_element()
             }
             Row::Tiles(range) => {
@@ -787,6 +734,11 @@ impl Gallery {
 
         let hash = *hash;
 
+        let is_bookmarked = self.bookmarks.contains(&hash);
+        let src_path = self
+            .get_image_entry(&hash)
+            .map(|e| e.src_path.to_path_buf());
+
         div()
             .key_context(super::CONTEXT_GALLERY)
             .id(hash.0 as usize)
@@ -804,12 +756,26 @@ impl Gallery {
             }))
             .context_menu(move |this, _, _| {
                 this.check_side(gpui_component::Side::Right)
-                    .menu_with_icon("Bookmark", IconName::Heart, Box::new(actions::Bookmark))
+                    .menu_with_icon(
+                        if is_bookmarked {
+                            "Unbookmark"
+                        } else {
+                            "Bookmark"
+                        },
+                        if is_bookmarked {
+                            IconName::HeartOff
+                        } else {
+                            IconName::Heart
+                        },
+                        Box::new(actions::Bookmark::Thumb(hash)),
+                    )
                     .separator()
                     .menu_with_icon(
                         "Open in Finder",
                         IconName::FolderOpen,
-                        Box::new(actions::Quit),
+                        Box::new(actions::OpenInFinder::Path(
+                            src_path.clone().unwrap_or_default(),
+                        )),
                     )
             })
             .map(|tile| match source {
@@ -854,12 +820,12 @@ impl Gallery {
         let count_label = match self.page {
             Page::Gallery => format!(
                 "{} images in {} folders",
-                format_num(self.filtered_images.len()),
-                format_num(self.groups.len())
+                util::format_num(self.filtered_images.len()),
+                util::format_num(self.groups.len())
             ),
             Page::Bookmarks => format!(
                 "{} bookmarked images",
-                format_num(self.filtered_images.len())
+                util::format_num(self.filtered_images.len())
             ),
         };
 
@@ -938,8 +904,8 @@ impl Gallery {
         let position = self.get_visible_position(hash).map(|p| p + 1).unwrap_or(0);
         let counter = format!(
             "{} / {}",
-            format_num(position),
-            format_num(self.filtered_images.len())
+            util::format_num(position),
+            util::format_num(self.filtered_images.len())
         );
 
         let counter = || {
@@ -1183,7 +1149,8 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_zoom_in))
             .on_action(cx.listener(Self::on_zoom_out))
             .on_action(cx.listener(Self::on_zoom_reset))
-            .on_action(cx.listener(Self::on_bookmark_active))
+            .on_action(cx.listener(Self::on_bookmark))
+            .on_action(cx.listener(Self::on_open_in_finder))
             .on_action(cx.listener(Self::on_prev_page))
             .on_action(cx.listener(Self::on_next_page))
             .on_action(cx.listener(Self::on_collapse_all))

@@ -1411,6 +1411,7 @@ dependencies = [
  "natord",
  "num-format",
  "rust-embed",
+ "schemars",
  "seahash",
  "serde",
  "thiserror 2.0.18",

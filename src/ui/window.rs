@@ -27,7 +27,16 @@ pub fn create_window(state: AppState) {
                 KeyBinding::new("left", actions::Prev, Some(CONTEXT_GALLERY_UNFOCUSED)),
                 KeyBinding::new("right", actions::Next, Some(CONTEXT_GALLERY_UNFOCUSED)),
                 KeyBinding::new("g", actions::OpenLightbox, Some(CONTEXT_GALLERY_UNFOCUSED)),
-                KeyBinding::new("b", actions::Bookmark, Some(CONTEXT_GALLERY_UNFOCUSED)),
+                KeyBinding::new(
+                    "b",
+                    actions::Bookmark::Current,
+                    Some(CONTEXT_GALLERY_UNFOCUSED),
+                ),
+                KeyBinding::new(
+                    "o",
+                    actions::OpenInFinder::Current,
+                    Some(CONTEXT_GALLERY_UNFOCUSED),
+                ),
                 KeyBinding::new("=", actions::ZoomIn, Some(CONTEXT_GALLERY_UNFOCUSED)),
                 KeyBinding::new("-", actions::ZoomOut, Some(CONTEXT_GALLERY_UNFOCUSED)),
                 KeyBinding::new("0", actions::ZoomReset, Some(CONTEXT_GALLERY_UNFOCUSED)),
