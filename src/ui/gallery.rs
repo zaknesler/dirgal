@@ -8,7 +8,8 @@ use crate::{
 };
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListOffset, ListState,
-    ObjectFit, ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px,
+    MouseDownEvent, ObjectFit, ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*,
+    px,
 };
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _,
@@ -468,8 +469,13 @@ impl Gallery {
             }
         }
 
+        // Go to next image on bookmarks page, or close the lightbox if there are no more images
         if self.page == Page::Bookmarks {
-            self.close_lightbox(cx);
+            if self.filtered_images.is_empty() {
+                self.close_lightbox(cx);
+            } else {
+                self.step(1, cx);
+            }
         }
     }
 
@@ -486,6 +492,7 @@ impl Gallery {
                 .map(|e| e.src_path.to_path_buf()),
             actions::OpenInFinder::Path(p) => Some(p.clone()),
         };
+
         if let Some(p) = path {
             util::reveal_in_file_manager(&p);
         }
@@ -1114,7 +1121,7 @@ impl Gallery {
                 }))
         };
 
-        let image_view = || {
+        let image_view = |cx: &mut Context<'_, Self>| {
             div()
                 .id("image-area")
                 .relative()
@@ -1122,6 +1129,7 @@ impl Gallery {
                 .min_h_0()
                 .size_full()
                 .overflow_hidden()
+                .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                 .child(
                     div()
                         .size_full()
@@ -1153,7 +1161,7 @@ impl Gallery {
             .px_4()
             .gap_4()
             .child(prev_button(cx))
-            .child(image_view())
+            .child(image_view(cx))
             .child(next_button(cx))
     }
 
@@ -1170,7 +1178,11 @@ impl Gallery {
             .items_center()
             .justify_center()
             .bg(gpui::rgba(COLOR_BACKDROP))
-            .on_click(cx.listener(|_, _, _, cx| {
+            .on_click(cx.listener(|this, _, _, cx| {
+                cx.stop_propagation();
+                this.close_lightbox(cx);
+            }))
+            .on_any_mouse_down(cx.listener(|_, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
             }))
             .on_scroll_wheel(cx.listener(|_, _: &ScrollWheelEvent, _, cx| {
