@@ -737,7 +737,8 @@ impl Gallery {
         let is_bookmarked = self.bookmarks.contains(&hash);
         let src_path = self
             .get_image_entry(&hash)
-            .map(|e| e.src_path.to_path_buf());
+            .map(|e| e.src_path.to_path_buf())
+            .expect("image should exist");
 
         div()
             .key_context(super::CONTEXT_GALLERY)
@@ -773,9 +774,7 @@ impl Gallery {
                     .menu_with_icon(
                         "Open in Finder",
                         IconName::FolderOpen,
-                        Box::new(actions::OpenInFinder::Path(
-                            src_path.clone().unwrap_or_default(),
-                        )),
+                        Box::new(actions::OpenInFinder::Path(src_path.clone())),
                     )
             })
             .map(|tile| match source {
