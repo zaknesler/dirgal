@@ -46,7 +46,7 @@ fn register_actions(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("ctrl-tab", actions::NextPage, Some(CONTEXT_GALLERY)),
         KeyBinding::new("ctrl-shift-tab", actions::PrevPage, Some(CONTEXT_GALLERY)),
-        KeyBinding::new("escape", actions::CloseLightbox, Some(CONTEXT_GALLERY)),
+        KeyBinding::new("escape", actions::CloseLightbox, None),
         KeyBinding::new("secondary-k", actions::FocusSearch, Some(CONTEXT_GALLERY)),
     ]);
 

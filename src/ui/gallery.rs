@@ -7,8 +7,8 @@ use crate::{
     util,
 };
 use gpui::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListState, ObjectFit,
-    ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListOffset, ListState,
+    ObjectFit, ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _,
@@ -48,6 +48,7 @@ pub struct Gallery {
     page: Page,
     focus_handle: FocusHandle,
     input: Entity<InputState>,
+    input_focus_handle: FocusHandle,
     lightbox: Option<ImageHash>,
 
     // Data
@@ -104,6 +105,7 @@ impl Gallery {
             .min(8);
 
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search..."));
+        let input_focus_handle = input.focus_handle(cx);
 
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
@@ -125,6 +127,7 @@ impl Gallery {
             page: Page::Gallery,
             focus_handle,
             input,
+            input_focus_handle,
             lightbox: None,
             roots: snapshot.roots,
             images: snapshot.images,
@@ -488,6 +491,51 @@ impl Gallery {
         }
     }
 
+    fn on_reveal_in_gallery(
+        &mut self,
+        action: &actions::RevealInGallery,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let actions::RevealInGallery(hash) = action;
+
+        if let Some(entry) = self.get_image_entry(hash) {
+            let parent = entry
+                .src_path
+                .parent()
+                .unwrap_or(Path::new(""))
+                .to_path_buf();
+            self.collapsed_groups.remove(&GroupHash(hash_path(&parent)));
+        }
+
+        self.page = Page::Gallery;
+        self.close_lightbox(cx);
+        self.refresh(cx);
+
+        if let Some(row_ix) = self.get_visible_position(hash).and_then(|pos| {
+            self.rows.iter().position(|row| match row {
+                Row::Tiles(range) => range.contains(&pos),
+                Row::Header(_) => false,
+            })
+        }) {
+            self.grid.scroll_to(ListOffset {
+                item_ix: row_ix,
+                offset_in_item: px(0.),
+            });
+        }
+
+        cx.notify();
+    }
+
+    fn on_focus_search(
+        &mut self,
+        _: &actions::FocusSearch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.input_focus_handle.focus(window, cx);
+    }
+
     fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
         if let Some(index) = self.get_bookmark_index(image_hash) {
             self.bookmarks.remove(index);
@@ -747,6 +795,7 @@ impl Gallery {
         let hash = *hash;
 
         let is_bookmarked = self.bookmarks.contains(&hash);
+        let page = self.page;
         let src_path = self
             .get_image_entry(&hash)
             .map(|e| e.src_path.to_path_buf())
@@ -767,8 +816,8 @@ impl Gallery {
                 cx.stop_propagation();
                 this.open_lightbox(&hash, cx)
             }))
-            .context_menu(move |this, _, _| {
-                this.check_side(gpui_component::Side::Right)
+            .context_menu(move |menu, _, _| {
+                menu.check_side(gpui_component::Side::Right)
                     .menu_with_icon(
                         if is_bookmarked {
                             "Unbookmark"
@@ -783,8 +832,15 @@ impl Gallery {
                         Box::new(actions::Bookmark::Thumb(hash)),
                     )
                     .separator()
+                    .when(page == Page::Bookmarks, |menu| {
+                        menu.menu_with_icon(
+                            "Reveal in Gallery",
+                            IconName::GalleryVerticalEnd,
+                            Box::new(actions::RevealInGallery(hash)),
+                        )
+                    })
                     .menu_with_icon(
-                        "Open in Finder",
+                        "Reveal in Finder",
                         IconName::FolderOpen,
                         Box::new(actions::OpenInFinder::Path(src_path.clone())),
                     )
@@ -823,8 +879,30 @@ impl Gallery {
                 this.page = Page::from(*selected_index);
                 this.refresh(cx);
             }))
-            .child(Tab::new().px_2().label("Gallery"))
-            .child(Tab::new().px_2().label("Bookmarks"))
+            .child(
+                Tab::new().px_2().child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(IconName::GalleryVerticalEnd),
+                        )
+                        .child("Gallery"),
+                ),
+            )
+            .child(
+                Tab::new().px_2().child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(IconName::Heart),
+                        )
+                        .child("Bookmarks"),
+                ),
+            )
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1162,6 +1240,8 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_zoom_reset))
             .on_action(cx.listener(Self::on_bookmark))
             .on_action(cx.listener(Self::on_open_in_finder))
+            .on_action(cx.listener(Self::on_reveal_in_gallery))
+            .on_action(cx.listener(Self::on_focus_search))
             .on_action(cx.listener(Self::on_prev_page))
             .on_action(cx.listener(Self::on_next_page))
             .on_action(cx.listener(Self::on_collapse_all))

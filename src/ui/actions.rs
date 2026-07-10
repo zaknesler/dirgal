@@ -29,3 +29,6 @@ pub enum Bookmark {
     Current,
     Thumb(super::model::ImageHash),
 }
+
+#[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
+pub struct RevealInGallery(pub super::model::ImageHash);
