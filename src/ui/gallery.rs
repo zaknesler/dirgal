@@ -983,7 +983,7 @@ impl Gallery {
                 .py_2()
                 .px_3()
                 .rounded_lg()
-                .bg(gpui::rgba(0x171717e6))
+                .bg(cx.theme().background)
                 .border_1()
                 .border_color(cx.theme().border)
                 .text_sm()

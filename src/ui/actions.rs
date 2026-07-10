@@ -15,6 +15,7 @@ actions!([
     ZoomReset,
     PrevPage,
     NextPage,
+    FocusSearch,
 ]);
 
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]

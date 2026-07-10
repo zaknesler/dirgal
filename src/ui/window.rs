@@ -11,37 +11,12 @@ pub fn create_window(state: AppState) {
         .with_assets(gpui_component_assets::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
-            gpui_component::theme::Theme::change(gpui_component::theme::ThemeMode::Dark, None, cx);
+            gpui_component::theme::Theme::sync_system_appearance(None, cx);
 
             let shared = SharedAppState::new(state, cx);
             cx.set_global(shared);
 
-            cx.on_action(|_: &actions::Quit, cx| cx.quit());
-
-            cx.bind_keys([
-                KeyBinding::new("cmd-q", actions::Quit, None),
-                KeyBinding::new("ctrl-w", actions::Quit, None),
-                KeyBinding::new("ctrl-tab", actions::NextPage, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("ctrl-shift-tab", actions::PrevPage, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("escape", actions::CloseLightbox, Some(CONTEXT_GALLERY)),
-                KeyBinding::new("left", actions::Prev, Some(CONTEXT_GALLERY_UNFOCUSED)),
-                KeyBinding::new("right", actions::Next, Some(CONTEXT_GALLERY_UNFOCUSED)),
-                KeyBinding::new("g", actions::OpenLightbox, Some(CONTEXT_GALLERY_UNFOCUSED)),
-                KeyBinding::new(
-                    "b",
-                    actions::Bookmark::Current,
-                    Some(CONTEXT_GALLERY_UNFOCUSED),
-                ),
-                KeyBinding::new(
-                    "o",
-                    actions::OpenInFinder::Current,
-                    Some(CONTEXT_GALLERY_UNFOCUSED),
-                ),
-                KeyBinding::new("=", actions::ZoomIn, Some(CONTEXT_GALLERY_UNFOCUSED)),
-                KeyBinding::new("-", actions::ZoomOut, Some(CONTEXT_GALLERY_UNFOCUSED)),
-                KeyBinding::new("0", actions::ZoomReset, Some(CONTEXT_GALLERY_UNFOCUSED)),
-                KeyBinding::new("c", actions::CollapseAll, Some(CONTEXT_GALLERY_UNFOCUSED)),
-            ]);
+            register_actions(cx);
 
             let options = WindowOptions {
                 titlebar: Some(TitlebarOptions {
@@ -59,4 +34,40 @@ pub fn create_window(state: AppState) {
 
             cx.activate(true);
         });
+}
+
+fn register_actions(cx: &mut App) {
+    cx.on_action(|_: &actions::Quit, cx| cx.quit());
+
+    // Global
+    cx.bind_keys([KeyBinding::new("secondary-q", actions::Quit, None)]);
+
+    // Gallery
+    cx.bind_keys([
+        KeyBinding::new("ctrl-tab", actions::NextPage, Some(CONTEXT_GALLERY)),
+        KeyBinding::new("ctrl-shift-tab", actions::PrevPage, Some(CONTEXT_GALLERY)),
+        KeyBinding::new("escape", actions::CloseLightbox, Some(CONTEXT_GALLERY)),
+        KeyBinding::new("secondary-k", actions::FocusSearch, Some(CONTEXT_GALLERY)),
+    ]);
+
+    // Gallery (unfocused)
+    cx.bind_keys([
+        KeyBinding::new("left", actions::Prev, Some(CONTEXT_GALLERY_UNFOCUSED)),
+        KeyBinding::new("right", actions::Next, Some(CONTEXT_GALLERY_UNFOCUSED)),
+        KeyBinding::new("g", actions::OpenLightbox, Some(CONTEXT_GALLERY_UNFOCUSED)),
+        KeyBinding::new(
+            "b",
+            actions::Bookmark::Current,
+            Some(CONTEXT_GALLERY_UNFOCUSED),
+        ),
+        KeyBinding::new(
+            "o",
+            actions::OpenInFinder::Current,
+            Some(CONTEXT_GALLERY_UNFOCUSED),
+        ),
+        KeyBinding::new("=", actions::ZoomIn, Some(CONTEXT_GALLERY_UNFOCUSED)),
+        KeyBinding::new("-", actions::ZoomOut, Some(CONTEXT_GALLERY_UNFOCUSED)),
+        KeyBinding::new("0", actions::ZoomReset, Some(CONTEXT_GALLERY_UNFOCUSED)),
+        KeyBinding::new("c", actions::CollapseAll, Some(CONTEXT_GALLERY_UNFOCUSED)),
+    ]);
 }
