@@ -1,9 +1,9 @@
-use crate::hash::hash_path_mtime;
+use crate::hash::{hash_content, hash_path};
 use std::collections::HashSet;
-use std::fs::{self, Metadata};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
+use std::time::SystemTime;
 
 use gpui::Img;
 use humansize::{BINARY, FormatSizeOptions, format_size};
@@ -18,6 +18,10 @@ pub const SMALL_FILE_BYTES: u64 = 32 * 1024;
 pub struct ImageEntry {
     pub hash: u64,
     pub bytes: u64,
+    #[allow(unused)]
+    pub modified: Option<SystemTime>,
+    #[allow(unused)]
+    pub created: Option<SystemTime>,
     pub src_path: Arc<Path>,
     pub thumb_path: Arc<Path>,
     pub thumb_exists: bool,
@@ -26,19 +30,25 @@ pub struct ImageEntry {
 pub struct FoundFile {
     path: PathBuf,
     bytes: u64,
-    mtime: u64,
+    modified: Option<SystemTime>,
+    created: Option<SystemTime>,
 }
 
 impl ImageEntry {
     pub fn new(file: FoundFile, thumb_dir: &Path) -> Self {
-        let hash = hash_path_mtime(&file.path, file.mtime);
+        let hash = hash_content(&file.path).unwrap_or_else(|e| {
+            tracing::warn!(path = %file.path.display(), error = %e, "hash_content failed, falling back to hash_path");
+            hash_path(&file.path)
+        });
         let thumb = thumb_dir.join(format!("{:016x}.png", hash));
         let thumb_exists = thumb.exists();
 
         Self {
             hash,
-            src_path: Arc::from(file.path),
             bytes: file.bytes,
+            modified: file.modified,
+            created: file.created,
+            src_path: Arc::from(file.path),
             thumb_path: Arc::from(thumb),
             thumb_exists,
         }
@@ -93,11 +103,12 @@ pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
 
         for entry in walk_images(root) {
             if seen.insert(entry.path().to_path_buf()) {
-                let (bytes, mtime) = entry_stats(&entry);
+                let (bytes, modified, created) = entry_stats(&entry);
                 found.push(FoundFile {
                     path: entry.into_path(),
                     bytes,
-                    mtime,
+                    modified,
+                    created,
                 });
             }
         }
@@ -126,21 +137,12 @@ fn is_image(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn entry_stats(entry: &ignore::DirEntry) -> (u64, u64) {
+fn entry_stats(entry: &ignore::DirEntry) -> (u64, Option<SystemTime>, Option<SystemTime>) {
     entry
         .metadata()
         .ok()
-        .map(|m| (m.len(), mtime_nanos(&m)))
-        .unwrap_or((0, 0))
-}
-
-fn mtime_nanos(metadata: &Metadata) -> u64 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+        .map(|m| (m.len(), m.modified().ok(), m.created().ok()))
+        .unwrap_or((0, None, None))
 }
 
 pub fn format_bytes(bytes: u64) -> String {

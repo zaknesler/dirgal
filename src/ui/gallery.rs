@@ -151,18 +151,13 @@ impl Gallery {
         this
     }
 
-    fn bookmarks_from_config(paths: &[PathBuf], images: &[ImageEntry]) -> Vec<ImageHash> {
-        let mut paths = paths.to_vec();
-        paths.sort_by(|a, b| crate::path::compare_paths(a, b));
+    fn bookmarks_from_config(hashes: &[u64], images: &[ImageEntry]) -> Vec<ImageHash> {
+        let known = hashes.iter().copied().collect::<HashSet<u64>>();
 
-        paths
-            .into_iter()
-            .filter_map(|path| {
-                images
-                    .iter()
-                    .find(|i| i.src_path.as_ref() == path)
-                    .map(|image| ImageHash(image.hash))
-            })
+        images
+            .iter()
+            .filter(|e| known.contains(&e.hash))
+            .map(|e| ImageHash(e.hash))
             .collect()
     }
 
@@ -554,32 +549,37 @@ impl Gallery {
     }
 
     fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
-        // Leave other bookmarks intact
-        let loaded_paths: HashSet<&Path> =
-            self.images.iter().map(|e| e.src_path.as_ref()).collect();
-
-        let current: Vec<PathBuf> = self
+        // Get the hashes of all the currently loaded bookmarks
+        let current_hashes = self
             .bookmarks
             .iter()
-            .filter_map(|hash| self.get_image_entry(hash))
-            .map(|entry| entry.src_path.to_path_buf())
-            .collect();
+            .map(|hash| hash.0)
+            .collect::<Vec<u64>>();
 
-        // Keep bookmarks that already exist and add the current ones
+        // Merge current bookmarks into config (and deduplicate)
         self.state.update(cx, |state, _cx| {
+            for hash in &current_hashes {
+                if !state.config.bookmarks.contains(hash) {
+                    state.config.bookmarks.push(*hash);
+                }
+            }
+
+            // Only affect the hashes currently loaded so we don't remove hashes from other directories
+            let loaded_hashes = self
+                .images
+                .iter()
+                .map(|image| image.hash)
+                .collect::<HashSet<u64>>();
+
             state
                 .config
                 .bookmarks
-                .retain(|p| !loaded_paths.contains(p.as_path()));
-            state.config.bookmarks.extend(current);
-            state
-                .config
-                .bookmarks
-                .sort_by(|a, b| crate::path::compare_paths(a, b));
+                .retain(|h| !loaded_hashes.contains(h) || current_hashes.contains(h));
         });
 
         self.bookmarks =
             Self::bookmarks_from_config(&self.state.read(cx).config.bookmarks, &self.images);
+
         cx.notify();
 
         if let Err(e) = self.state.read(cx).config.save() {
