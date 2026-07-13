@@ -22,7 +22,7 @@ pub struct Args {
 #[derive(Debug, Parser)]
 pub enum Command {
     /// Delete all thumbnail images from the cache
-    DeleteThumbnails,
+    Purge,
 }
 
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
@@ -34,7 +34,7 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    pub fn to_string(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         match self {
             LogLevel::Debug => "debug",
             LogLevel::Info => "info",

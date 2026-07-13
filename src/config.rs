@@ -13,17 +13,9 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 #[folder = "stubs"]
 struct StubAssetDir;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct AppConfig {
     pub bookmarks: Vec<PathBuf>,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            bookmarks: Vec::new(),
-        }
-    }
 }
 
 impl AppConfig {

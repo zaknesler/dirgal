@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use crate::ui::state::AppState;
 use clap::Parser;
 use std::path::PathBuf;
@@ -60,7 +62,7 @@ fn get_thumbnail_dir() -> PathBuf {
 
 fn init_tracing(log_level: cli::LogLevel) -> error::AppResult<()> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level.to_string()));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level.as_str()));
 
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)

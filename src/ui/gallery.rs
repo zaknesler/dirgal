@@ -41,7 +41,6 @@ const LIGHTBOX_CACHE_ITEMS: usize = 10;
 const COLOR_ACCENT: u32 = 0xca3500;
 const COLOR_BACKDROP: u32 = 0x0a0a0af0;
 
-#[allow(dead_code)]
 pub struct Gallery {
     state: Entity<state::AppState>,
 
@@ -154,7 +153,7 @@ impl Gallery {
 
     fn bookmarks_from_config(paths: &[PathBuf], images: &[ImageEntry]) -> Vec<ImageHash> {
         let mut paths = paths.to_vec();
-        paths.sort_by(|a, b| crate::path::compare_paths(&a, &b));
+        paths.sort_by(|a, b| crate::path::compare_paths(a, b));
 
         paths
             .into_iter()
@@ -170,7 +169,7 @@ impl Gallery {
     fn get_candidate_images(&self) -> Vec<ImageHash> {
         match self.page {
             Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
-            Page::Bookmarks => self.bookmarks.iter().cloned().collect(),
+            Page::Bookmarks => self.bookmarks.to_vec(),
         }
     }
 
@@ -567,26 +566,24 @@ impl Gallery {
             .collect();
 
         // Keep bookmarks that already exist and add the current ones
-        match crate::config::AppConfig::load() {
-            Ok(mut config) => {
-                config
-                    .bookmarks
-                    .retain(|p| !loaded_paths.contains(p.as_path()));
+        self.state.update(cx, |state, _cx| {
+            state
+                .config
+                .bookmarks
+                .retain(|p| !loaded_paths.contains(p.as_path()));
+            state.config.bookmarks.extend(current);
+            state
+                .config
+                .bookmarks
+                .sort_by(|a, b| crate::path::compare_paths(a, b));
+        });
 
-                config.bookmarks.extend(current);
+        self.bookmarks =
+            Self::bookmarks_from_config(&self.state.read(cx).config.bookmarks, &self.images);
+        cx.notify();
 
-                config
-                    .bookmarks
-                    .sort_by(|a, b| crate::path::compare_paths(a, b));
-
-                self.bookmarks = Self::bookmarks_from_config(&config.bookmarks, &self.images);
-                cx.notify();
-
-                if let Err(e) = config.save() {
-                    tracing::warn!(error = %e, "failed to save bookmarks to config");
-                }
-            }
-            Err(e) => tracing::warn!(error = %e, "failed to load config for saving bookmarks"),
+        if let Err(e) = self.state.read(cx).config.save() {
+            tracing::warn!(error = %e, "failed to save bookmarks to config");
         }
     }
 
@@ -610,7 +607,7 @@ impl Gallery {
     }
 
     fn on_open(&mut self, _: &actions::OpenLightbox, _: &mut Window, cx: &mut Context<Self>) {
-        if self.filtered_images.len() == 0 {
+        if self.filtered_images.is_empty() {
             return;
         }
 
