@@ -24,3 +24,11 @@ pub fn reveal_in_file_manager(path: &Path) {
 pub fn format_num(n: usize) -> String {
     n.to_formatted_string(&Locale::en)
 }
+
+pub fn purge_thumbnails(thumb_dir: &Path) {
+    if !thumb_dir.exists() {
+        return;
+    }
+
+    std::fs::remove_dir_all(thumb_dir).ok();
+}

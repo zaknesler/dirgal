@@ -19,12 +19,12 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn load() -> AppResult<AppConfig> {
+    pub fn load(override_path: Option<String>) -> AppResult<AppConfig> {
         Self::init_config_file()?;
 
         let config_dir = Self::get_config_dir()?;
 
-        let config = Figment::new()
+        let mut config = Figment::new()
             .merge(Toml::string(std::str::from_utf8(
                 Self::get_default_data().as_ref(),
             )?))
@@ -33,10 +33,14 @@ impl AppConfig {
                     .join(CONFIG_FILE_NAME)
                     .to_str()
                     .ok_or_else(|| AppError::ConfigFileNotFound)?,
-            ))
-            .extract::<AppConfig>()?;
+            ));
 
-        Ok(config)
+        // Maybe override with a custom config file
+        if let Some(path) = override_path {
+            config = config.merge(Toml::file(PathBuf::from(path)))
+        }
+
+        Ok(config.extract::<AppConfig>()?)
     }
 
     pub fn save(&self) -> AppResult<()> {

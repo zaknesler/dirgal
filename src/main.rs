@@ -18,10 +18,21 @@ fn main() -> error::AppResult<()> {
 
     init_tracing(args.log_level)?;
 
-    let config = config::AppConfig::load()?;
+    let config = config::AppConfig::load(args.config)?;
 
     let roots = get_roots(args.paths);
     let thumb_dir = get_thumbnail_dir();
+
+    if let Some(command) = args.command {
+        match command {
+            cli::Command::Purge => {
+                util::purge_thumbnails(&thumb_dir);
+            }
+        }
+
+        return Ok(());
+    }
+
     let images = image::collect_images(&roots, &thumb_dir);
 
     let state = AppState {
