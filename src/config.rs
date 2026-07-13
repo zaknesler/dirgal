@@ -83,7 +83,7 @@ impl AppConfig {
         let config_dir = Self::get_config_dir()?;
 
         // Create project config directory if it doesn't exist
-        fs::create_dir_all(config_dir.clone())?;
+        fs::create_dir_all(&config_dir)?;
 
         Ok(config_dir)
     }

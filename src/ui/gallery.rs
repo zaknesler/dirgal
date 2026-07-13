@@ -448,9 +448,9 @@ impl Gallery {
         self.open_lightbox(&next, cx);
     }
 
-    fn toggle_group(&mut self, group_hash: GroupHash, cx: &mut Context<Self>) {
-        if !self.collapsed_groups.remove(&group_hash) {
-            self.collapsed_groups.insert(group_hash);
+    fn toggle_group(&mut self, group_hash: &GroupHash, cx: &mut Context<Self>) {
+        if !self.collapsed_groups.remove(group_hash) {
+            self.collapsed_groups.insert(*group_hash);
         }
 
         self.refresh(cx);
@@ -737,7 +737,7 @@ impl Gallery {
                     })
                     .cursor_pointer()
                     .group("header")
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_hash, cx)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(&group_hash, cx)))
                     .child(
                         Button::new(("chevron", group_hash.0))
                             .ghost()
@@ -751,7 +751,7 @@ impl Gallery {
                             .group_hover("header", |el| el.text_color(cx.theme().foreground))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
-                                this.toggle_group(group_hash, cx);
+                                this.toggle_group(&group_hash, cx);
                             })),
                     )
                     .child(
