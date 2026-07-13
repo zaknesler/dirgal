@@ -1,7 +1,8 @@
+use crate::ui::state::AppState;
+use clap::Parser;
 use std::path::PathBuf;
 
-use crate::ui::state::AppState;
-
+mod cli;
 mod config;
 mod error;
 mod hash;
@@ -11,11 +12,13 @@ mod ui;
 mod util;
 
 fn main() -> error::AppResult<()> {
-    init_tracing()?;
+    let args = cli::Args::parse();
+
+    init_tracing(args.log_level)?;
 
     let config = config::AppConfig::load()?;
 
-    let roots = get_roots();
+    let roots = get_roots(args.paths);
     let thumb_dir = get_thumbnail_dir();
     let images = image::collect_images(&roots, &thumb_dir);
 
@@ -30,15 +33,14 @@ fn main() -> error::AppResult<()> {
     Ok(())
 }
 
-fn get_roots() -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = std::env::args().skip(1).map(PathBuf::from).collect();
-    if roots.is_empty() {
-        roots.push(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    }
-
-    roots
+fn get_roots(paths: Option<Vec<String>>) -> Vec<PathBuf> {
+    paths
+        .unwrap_or_else(|| vec![".".to_string()])
         .into_iter()
-        .map(|r| std::fs::canonicalize(&r).unwrap_or(r))
+        .map(|path| {
+            let path = PathBuf::from(path);
+            std::fs::canonicalize(&path).unwrap_or(path)
+        })
         .collect()
 }
 
@@ -56,9 +58,9 @@ fn get_thumbnail_dir() -> PathBuf {
     thumb_dir
 }
 
-fn init_tracing() -> error::AppResult<()> {
+fn init_tracing(log_level: cli::LogLevel) -> error::AppResult<()> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level.to_string()));
 
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)
