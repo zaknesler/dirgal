@@ -10,6 +10,7 @@ mod error;
 mod hash;
 mod image;
 mod path;
+mod scan;
 mod ui;
 mod util;
 
@@ -23,17 +24,18 @@ fn main() -> error::AppResult<()> {
     let roots = get_roots(args.paths);
     let thumb_dir = get_thumbnail_dir();
 
-    if let Some(command) = args.command {
-        match command {
-            cli::Command::Purge => {
-                util::purge_thumbnails(&thumb_dir);
-            }
-        }
-
+    if args.purge {
+        util::purge_thumbnails(&thumb_dir);
         return Ok(());
     }
 
     let images = image::collect_images(&roots, &thumb_dir);
+
+    tracing::info!("found {} images", images.len());
+
+    if args.prefetch {
+        scan::run(&images);
+    }
 
     let state = AppState {
         config,

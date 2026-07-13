@@ -11,18 +11,17 @@ pub struct Args {
     #[clap(long, short)]
     pub config: Option<String>,
 
-    #[clap(subcommand)]
-    pub command: Option<Command>,
+    /// Delete all thumbnail images from the cache
+    #[clap(long)]
+    pub purge: bool,
+
+    /// Pre-generate thumbnails before opening
+    #[clap(long)]
+    pub prefetch: bool,
 
     /// Paths to include in the gallery
     #[clap(trailing_var_arg = true)]
     pub paths: Option<Vec<String>>,
-}
-
-#[derive(Debug, Parser)]
-pub enum Command {
-    /// Delete all thumbnail images from the cache
-    Purge,
 }
 
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]

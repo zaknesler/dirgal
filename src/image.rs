@@ -20,6 +20,7 @@ pub struct ImageEntry {
     pub bytes: u64,
     pub src_path: Arc<Path>,
     pub thumb_path: Arc<Path>,
+    pub thumb_exists: bool,
 }
 
 pub struct FoundFile {
@@ -32,17 +33,19 @@ impl ImageEntry {
     pub fn new(file: FoundFile, thumb_dir: &Path) -> Self {
         let hash = hash_path_mtime(&file.path, file.mtime);
         let thumb = thumb_dir.join(format!("{:016x}.png", hash));
+        let thumb_exists = thumb.exists();
 
         Self {
             hash,
             src_path: Arc::from(file.path),
             bytes: file.bytes,
             thumb_path: Arc::from(thumb),
+            thumb_exists,
         }
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    pub async fn generate_thumbnail(&self) -> Result<(), String> {
+    pub fn generate_thumbnail(&self) -> Result<(), String> {
         let src = &self.src_path;
         let dst = &self.thumb_path;
 

@@ -8,12 +8,14 @@ pub fn reveal_in_file_manager(path: &Path) {
         .arg(path)
         .spawn()
         .ok();
+
     #[cfg(target_os = "windows")]
     std::process::Command::new("explorer")
         .arg("/select,")
         .arg(path)
         .spawn()
         .ok();
+
     #[cfg(target_os = "linux")]
     std::process::Command::new("xdg-open")
         .arg(path.parent().unwrap_or(path))

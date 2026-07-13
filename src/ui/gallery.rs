@@ -316,7 +316,7 @@ impl Gallery {
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { image.generate_thumbnail().await })
+                    .spawn(async move { image.generate_thumbnail() })
                     .await;
 
                 this.update(cx, |gallery, cx| {
