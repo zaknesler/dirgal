@@ -1,7 +1,7 @@
 use crate::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES, format_bytes},
-    path::{compare_paths, group_segments, label_for},
+    path::{compare_paths_grouped, group_segments, label_for},
     ui::model::*,
     ui::*,
     util,
@@ -91,8 +91,9 @@ impl Gallery {
 
         let snapshot = state.read(cx).clone();
 
-        let queue: VecDeque<Job> = snapshot
-            .images
+        let images = Self::normalize_images(snapshot.images);
+
+        let queue: VecDeque<Job> = images
             .iter()
             .filter(|e| e.bytes >= SMALL_FILE_BYTES)
             .map(|entry| Job {
@@ -115,14 +116,13 @@ impl Gallery {
         cx.subscribe_in(&input, window, Self::on_input_event)
             .detach();
 
-        let image_index = snapshot
-            .images
+        let image_index = images
             .iter()
             .enumerate()
             .map(|(i, e)| (ImageHash(e.hash), i))
             .collect();
 
-        let bookmarks = Self::bookmarks_from_config(&snapshot.config.bookmarks, &snapshot.images);
+        let bookmarks = Self::bookmarks_from_config(&snapshot.config.bookmarks, &images);
 
         let mut this = Self {
             state,
@@ -132,7 +132,7 @@ impl Gallery {
             input_focus_handle,
             lightbox: None,
             roots: snapshot.roots,
-            images: snapshot.images,
+            images,
             image_index,
             filtered_images: Vec::new(),
             rows: Vec::new(),
@@ -153,6 +153,20 @@ impl Gallery {
         this
     }
 
+    /// Dedup by content hash (keep last), then sort so each directory's images
+    /// are contiguous — grouping and `Row::Tiles` range slicing rely on this
+    fn normalize_images(images: Vec<ImageEntry>) -> Vec<ImageEntry> {
+        let mut seen = HashSet::new();
+        let mut images: Vec<ImageEntry> = images
+            .into_iter()
+            .rev()
+            .filter(|e| seen.insert(e.hash))
+            .collect();
+
+        images.sort_by(|a, b| compare_paths_grouped(&a.src_path, &b.src_path));
+        images
+    }
+
     fn bookmarks_from_config(hashes: &[u64], images: &[ImageEntry]) -> Vec<ImageHash> {
         let known = hashes.iter().copied().collect::<HashSet<u64>>();
 
@@ -163,50 +177,45 @@ impl Gallery {
             .collect()
     }
 
-    fn get_candidate_images(&self) -> Vec<ImageHash> {
-        match self.page {
+    fn get_visible_hashes(&self, query: &str) -> Vec<ImageHash> {
+        let candidates: Vec<ImageHash> = match self.page {
             Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
-            Page::Bookmarks => self.bookmarks.to_vec(),
-        }
-    }
+            Page::Bookmarks => self.bookmarks.clone(),
+        };
 
-    fn get_visible_hashes(&self, candidates: &[ImageHash], query: &str) -> Vec<ImageHash> {
         if query.is_empty() {
-            return candidates.to_vec();
+            return candidates;
         }
 
         let query = query.to_lowercase();
 
         candidates
-            .iter()
+            .into_iter()
             .filter(|hash| {
                 self.get_image_entry(hash)
                     .map(|e| e.src_path.to_string_lossy().to_lowercase().contains(&query))
                     .unwrap_or(false)
             })
-            .cloned()
             .collect()
     }
 
+    /// Group filtered images by parent directory (contiguous since `images` is pre-sorted)
     fn get_computed_groups(&self) -> Vec<Group> {
         let mut groups: Vec<Group> = Vec::new();
-        let mut path_to_index: HashMap<PathBuf, usize> = HashMap::new();
 
         for &hash in &self.filtered_images {
             let parent = self
                 .get_image_entry(&hash)
-                .and_then(|e| e.src_path.parent().map(|p| p.to_path_buf()))
-                .unwrap_or_default();
-            if let Some(&idx) = path_to_index.get(&parent) {
-                groups[idx].image_hashes.push(hash);
-            } else {
-                let idx = groups.len();
-                path_to_index.insert(parent.clone(), idx);
-                groups.push(Group {
-                    hash: GroupHash(hash_path(&parent)),
-                    path: parent,
+                .and_then(|e| e.src_path.parent())
+                .unwrap_or(Path::new(""));
+
+            match groups.last_mut() {
+                Some(group) if group.path == parent => group.image_hashes.push(hash),
+                _ => groups.push(Group {
+                    hash: GroupHash(hash_path(parent)),
+                    path: parent.to_path_buf(),
                     image_hashes: vec![hash],
-                });
+                }),
             }
         }
 
@@ -309,65 +318,44 @@ impl Gallery {
                     .spawn(async move { image.generate_thumbnail() })
                     .await;
 
-                this.update(cx, |gallery, cx| {
-                    gallery.num_running -= 1;
-                    gallery.thumbs.insert(
-                        hash,
-                        match result {
-                            Ok(_) => {
-                                let p = gallery
-                                    .get_image_entry(&hash)
-                                    .expect("image should exist")
-                                    .thumb_path
-                                    .clone();
-                                ThumbState::Ready(p)
-                            }
-                            Err(err) => {
-                                let path = gallery
-                                    .get_image_entry(&hash)
-                                    .map(|e| e.src_path.display().to_string())
-                                    .unwrap_or_default();
-                                tracing::warn!(path, error = %err, "thumbnail generation failed");
-                                ThumbState::Failed
-                            }
-                        },
-                    );
-
-                    gallery.process_jobs(cx);
-                    cx.notify();
-                })
-                .ok();
+                this.update(cx, |gallery, cx| gallery.on_job_finished(hash, result, cx))
+                    .ok();
             })
             .detach();
         }
     }
 
+    fn on_job_finished(
+        &mut self,
+        hash: ImageHash,
+        result: crate::error::AppResult<()>,
+        cx: &mut Context<Self>,
+    ) {
+        self.num_running -= 1;
+
+        let state = match result {
+            Ok(_) => {
+                let entry = self.get_image_entry(&hash).expect("image should exist");
+                ThumbState::Ready(entry.thumb_path.clone())
+            }
+            Err(err) => {
+                let path = self
+                    .get_image_entry(&hash)
+                    .map(|e| e.src_path.display().to_string())
+                    .unwrap_or_default();
+                tracing::warn!(path, error = %err, "thumbnail generation failed");
+                ThumbState::Failed
+            }
+        };
+
+        self.thumbs.insert(hash, state);
+        self.process_jobs(cx);
+        cx.notify();
+    }
+
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
-        let candidates = self.get_candidate_images();
-        self.filtered_images = self.get_visible_hashes(&candidates, &query);
-
-        let src_paths: HashMap<ImageHash, Arc<Path>> = self
-            .filtered_images
-            .iter()
-            .filter_map(|&h| self.get_image_entry(&h).map(|e| (h, e.src_path.clone())))
-            .collect();
-
-        self.filtered_images.sort_by(|a, b| {
-            let path_a = src_paths
-                .get(a)
-                .map(|p| p.as_ref())
-                .unwrap_or(Path::new(""));
-            let path_b = src_paths
-                .get(b)
-                .map(|p| p.as_ref())
-                .unwrap_or(Path::new(""));
-            let pa = path_a.parent().unwrap_or(Path::new(""));
-            let pb = path_b.parent().unwrap_or(Path::new(""));
-            compare_paths(pa, pb).then_with(|| compare_paths(path_a, path_b))
-        });
-
-        self.filtered_images.dedup_by_key(|h| *h);
+        self.filtered_images = self.get_visible_hashes(&query);
 
         let old_rows = std::mem::take(&mut self.rows);
         let cols = self.num_columns.max(1);
@@ -566,32 +554,21 @@ impl Gallery {
     }
 
     fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
-        // Get the hashes of all the currently loaded bookmarks
-        let current_hashes = self
-            .bookmarks
-            .iter()
-            .map(|hash| hash.0)
-            .collect::<Vec<u64>>();
+        let current: HashSet<u64> = self.bookmarks.iter().map(|hash| hash.0).collect();
+        let loaded: HashSet<u64> = self.images.iter().map(|image| image.hash).collect();
 
-        // Merge current bookmarks into config (and deduplicate)
+        // Merge into config, only touching loaded hashes so other directories' bookmarks survive
         self.state.update(cx, |state, _cx| {
-            for hash in &current_hashes {
-                if !state.config.bookmarks.contains(hash) {
-                    state.config.bookmarks.push(*hash);
-                }
-            }
-
-            // Only affect the hashes currently loaded so we don't remove hashes from other directories
-            let loaded_hashes = self
-                .images
-                .iter()
-                .map(|image| image.hash)
-                .collect::<HashSet<u64>>();
-
             state
                 .config
                 .bookmarks
-                .retain(|h| !loaded_hashes.contains(h) || current_hashes.contains(h));
+                .retain(|h| !loaded.contains(h) || current.contains(h));
+
+            for hash in &self.bookmarks {
+                if !state.config.bookmarks.contains(&hash.0) {
+                    state.config.bookmarks.push(hash.0);
+                }
+            }
         });
 
         self.bookmarks =
@@ -630,17 +607,10 @@ impl Gallery {
 
         let first = match self.page {
             Page::Gallery => self
-                .filtered_images
+                .groups
                 .iter()
-                .find(|hash| {
-                    let group = self
-                        .groups
-                        .iter()
-                        .find(|g| g.image_hashes.contains(hash))
-                        .expect("group should exist");
-                    let is_collapsed = self.collapsed_groups.contains(&group.hash);
-                    !is_collapsed
-                })
+                .find(|g| !self.collapsed_groups.contains(&g.hash))
+                .and_then(|g| g.image_hashes.first())
                 .copied(),
             Page::Bookmarks => self.filtered_images.first().copied(),
         };
@@ -728,85 +698,101 @@ impl Gallery {
             return div().into_any_element();
         };
 
+        match row {
+            Row::Header(group_hash) => self.render_header_row(group_hash, index, cx),
+            Row::Tiles(range) => self.render_tile_row(range, index, cx),
+        }
+    }
+
+    fn render_header_row(
+        &mut self,
+        group_hash: GroupHash,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_last_row = index == self.rows.len() - 1;
+
+        let group = self
+            .groups
+            .iter()
+            .find(|g| g.hash == group_hash)
+            .expect("group should exist");
+        let segments = group_segments(&self.roots, &group.path);
+        let count = group.image_hashes.len();
+        let is_collapsed = self.collapsed_groups.contains(&group_hash);
+
+        h_flex()
+            .id(("header", group_hash.0))
+            .w_full()
+            .items_center()
+            .gap_2()
+            .px(px(GRID_OUTER_MARGIN / 2.0))
+            .pt(px(GRID_OUTER_MARGIN / 2.0))
+            .when(!is_collapsed || is_last_row, |el| {
+                el.pb(px(GRID_OUTER_MARGIN / 2.0))
+            })
+            .cursor_pointer()
+            .group("header")
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(&group_hash, cx)))
+            .child(
+                Button::new(("chevron", group_hash.0))
+                    .ghost()
+                    .small()
+                    .icon(if is_collapsed {
+                        IconName::ChevronRight
+                    } else {
+                        IconName::ChevronDown
+                    })
+                    .text_color(cx.theme().muted_foreground)
+                    .group_hover("header", |el| el.text_color(cx.theme().foreground))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.toggle_group(&group_hash, cx);
+                    })),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .flex_none()
+                    .text_sm()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(Breadcrumb::new().children(segments)),
+            )
+            .child(
+                Tag::new()
+                    .small()
+                    .child(util::format_num(count).to_string()),
+            )
+            .into_any_element()
+    }
+
+    fn render_tile_row(
+        &mut self,
+        range: std::ops::Range<usize>,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let is_only_row = index == 0;
         let is_last_row = index == self.rows.len() - 1;
 
-        match row {
-            Row::Header(group_hash) => {
-                let group = self
-                    .groups
-                    .iter()
-                    .find(|g| g.hash == group_hash)
-                    .expect("group should exist");
-                let segments = group_segments(&self.roots, &group.path);
-                let count = group.image_hashes.len();
-                let is_collapsed = self.collapsed_groups.contains(&group_hash);
+        let hashes = self.filtered_images[range].to_vec();
 
-                h_flex()
-                    .id(("header", group_hash.0))
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .px(px(GRID_OUTER_MARGIN / 2.0))
-                    .pt(px(GRID_OUTER_MARGIN / 2.0))
-                    .when(!is_collapsed || is_last_row, |el| {
-                        el.pb(px(GRID_OUTER_MARGIN / 2.0))
-                    })
-                    .cursor_pointer()
-                    .group("header")
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(&group_hash, cx)))
-                    .child(
-                        Button::new(("chevron", group_hash.0))
-                            .ghost()
-                            .small()
-                            .icon(if is_collapsed {
-                                IconName::ChevronRight
-                            } else {
-                                IconName::ChevronDown
-                            })
-                            .text_color(cx.theme().muted_foreground)
-                            .group_hover("header", |el| el.text_color(cx.theme().foreground))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.toggle_group(&group_hash, cx);
-                            })),
-                    )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .flex_none()
-                            .text_sm()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(Breadcrumb::new().children(segments)),
-                    )
-                    .child(
-                        Tag::new()
-                            .small()
-                            .child(util::format_num(count).to_string()),
-                    )
-                    .into_any_element()
-            }
-            Row::Tiles(range) => {
-                let hashes = self.filtered_images[range].to_vec();
-
-                h_flex()
-                    .w_full()
-                    .px(px(GRID_OUTER_MARGIN / 2.0))
-                    .gap(px(GRID_GAP))
-                    .when(is_only_row, |el| el.pt(px(GRID_OUTER_MARGIN / 2.0)))
-                    .when_else(
-                        is_last_row,
-                        |el| el.pb(px(GRID_OUTER_MARGIN / 2.0)),
-                        |el| el.pb(px(GRID_GAP)),
-                    )
-                    .children(
-                        hashes
-                            .into_iter()
-                            .map(|ref hash| self.render_thumb(hash, cx)),
-                    )
-                    .into_any_element()
-            }
-        }
+        h_flex()
+            .w_full()
+            .px(px(GRID_OUTER_MARGIN / 2.0))
+            .gap(px(GRID_GAP))
+            .when(is_only_row, |el| el.pt(px(GRID_OUTER_MARGIN / 2.0)))
+            .when_else(
+                is_last_row,
+                |el| el.pb(px(GRID_OUTER_MARGIN / 2.0)),
+                |el| el.pb(px(GRID_GAP)),
+            )
+            .children(
+                hashes
+                    .into_iter()
+                    .map(|ref hash| self.render_thumb(hash, cx)),
+            )
+            .into_any_element()
     }
 
     fn render_thumb(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
@@ -841,33 +827,7 @@ impl Gallery {
                 this.open_lightbox(&hash, cx)
             }))
             .context_menu(move |menu, _, _| {
-                menu.check_side(gpui_component::Side::Right)
-                    .menu_with_icon(
-                        if is_bookmarked {
-                            "Unbookmark"
-                        } else {
-                            "Bookmark"
-                        },
-                        if is_bookmarked {
-                            IconName::HeartOff
-                        } else {
-                            IconName::Heart
-                        },
-                        Box::new(actions::Bookmark::Thumb(hash)),
-                    )
-                    .separator()
-                    .when(page == Page::Bookmarks, |menu| {
-                        menu.menu_with_icon(
-                            "Reveal in Gallery",
-                            IconName::GalleryVerticalEnd,
-                            Box::new(actions::RevealInGallery(hash)),
-                        )
-                    })
-                    .menu_with_icon(
-                        "Reveal in Finder",
-                        IconName::FolderOpen,
-                        Box::new(actions::OpenInFinder::Path(src_path.clone())),
-                    )
+                Self::thumb_context_menu(menu, hash, is_bookmarked, page, &src_path)
             })
             .map(|tile| match source {
                 Some(path) => tile.child(
@@ -877,18 +837,7 @@ impl Gallery {
                         .overflow_hidden()
                         .object_fit(ObjectFit::Cover),
                 ),
-                None => tile
-                    .relative()
-                    .child(Skeleton::new().secondary().w_full().h_full())
-                    .child(
-                        v_flex()
-                            .size_full()
-                            .absolute()
-                            .inset_0()
-                            .items_center()
-                            .justify_center()
-                            .child(Spinner::new().large()),
-                    ),
+                None => tile.relative().child(Self::thumb_placeholder()),
             })
             .when(DEBUG, |el| {
                 el.child(
@@ -905,6 +854,57 @@ impl Gallery {
                 )
             })
             .into_any_element()
+    }
+
+    fn thumb_context_menu(
+        menu: gpui_component::menu::PopupMenu,
+        hash: ImageHash,
+        is_bookmarked: bool,
+        page: Page,
+        src_path: &Path,
+    ) -> gpui_component::menu::PopupMenu {
+        menu.check_side(gpui_component::Side::Right)
+            .menu_with_icon(
+                if is_bookmarked {
+                    "Unbookmark"
+                } else {
+                    "Bookmark"
+                },
+                if is_bookmarked {
+                    IconName::HeartOff
+                } else {
+                    IconName::Heart
+                },
+                Box::new(actions::Bookmark::Thumb(hash)),
+            )
+            .separator()
+            .when(page == Page::Bookmarks, |menu| {
+                menu.menu_with_icon(
+                    "Reveal in Gallery",
+                    IconName::GalleryVerticalEnd,
+                    Box::new(actions::RevealInGallery(hash)),
+                )
+            })
+            .menu_with_icon(
+                "Reveal in Finder",
+                IconName::FolderOpen,
+                Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
+            )
+    }
+
+    fn thumb_placeholder() -> impl IntoElement {
+        div()
+            .size_full()
+            .child(Skeleton::new().secondary().w_full().h_full())
+            .child(
+                v_flex()
+                    .size_full()
+                    .absolute()
+                    .inset_0()
+                    .items_center()
+                    .justify_center()
+                    .child(Spinner::new().large()),
+            )
     }
 
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {

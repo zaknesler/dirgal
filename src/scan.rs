@@ -59,5 +59,5 @@ pub fn run(images: &[ImageEntry]) -> AppResult<()> {
         }
     }
 
-    return Ok(());
+    Ok(())
 }
