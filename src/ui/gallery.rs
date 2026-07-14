@@ -29,20 +29,30 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Overlays source paths on tiles when enabled
 const DEBUG: bool = false;
 
+/// Minimum tile width in pixels before adding another column
 const TILE_MIN: f32 = 200.0;
+/// Spacing between tiles in pixels
 const GRID_GAP: f32 = 6.0;
+/// Total horizontal padding around the grid in pixels
 const GRID_OUTER_MARGIN: f32 = 32.0;
 
+/// Number of navigable pages (gallery, bookmarks)
 const NUM_PAGES: usize = 2;
 
+/// Max images retained in the grid's LRU image cache
 const GRID_CACHE_ITEMS: usize = 300;
+/// Max images retained in the lightbox's LRU image cache
 const LIGHTBOX_CACHE_ITEMS: usize = 10;
 
+/// Hover highlight color for tile borders
 const COLOR_ACCENT: u32 = 0xca3500;
+/// Semi-transparent backdrop color behind the lightbox
 const COLOR_BACKDROP: u32 = 0x0a0a0af0;
 
+/// Main gallery view: grid of thumbnails, search, bookmarks, and lightbox
 pub struct Gallery {
     state: Entity<state::AppState>,
 
@@ -77,10 +87,12 @@ pub struct Gallery {
 }
 
 impl Gallery {
+    /// Create the gallery entity
     pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(window, cx))
     }
 
+    /// Build the gallery from app state and seed the deferred thumbnail queue
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state::SharedAppState::from_app(cx).entity().clone();
 
@@ -153,8 +165,7 @@ impl Gallery {
         this
     }
 
-    /// Dedup by content hash (keep last), then sort so each directory's images
-    /// are contiguous — grouping and `Row::Tiles` range slicing rely on this
+    /// Dedup by content hash (keep last), then sort so each directory's images are contiguous
     fn normalize_images(images: Vec<ImageEntry>) -> Vec<ImageEntry> {
         let mut seen = HashSet::new();
         let mut images: Vec<ImageEntry> = images
@@ -167,6 +178,7 @@ impl Gallery {
         images
     }
 
+    /// Resolve configured bookmark hashes against loaded images, dropping unknowns
     fn bookmarks_from_config(hashes: &[u64], images: &[ImageEntry]) -> Vec<ImageHash> {
         let known = hashes.iter().copied().collect::<HashSet<u64>>();
 
@@ -177,6 +189,7 @@ impl Gallery {
             .collect()
     }
 
+    /// Hashes for the current page, filtered by a case-insensitive path search
     fn get_visible_hashes(&self, query: &str) -> Vec<ImageHash> {
         let candidates: Vec<ImageHash> = match self.page {
             Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
@@ -222,15 +235,18 @@ impl Gallery {
         groups
     }
 
+    /// Index of an image within the current filtered set
     fn get_visible_position(&self, hash: &ImageHash) -> Option<usize> {
         self.filtered_images.iter().position(|&i| i == *hash)
     }
 
+    /// Look up an image entry by content hash
     fn get_image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
         let hash = self.image_index.get(hash)?;
         self.images.get(*hash)
     }
 
+    /// Displayable path for a thumbnail, enqueueing generation on first request
     fn get_thumb_path(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
         let state = self
             .thumbs
@@ -267,6 +283,7 @@ impl Gallery {
         }
     }
 
+    /// Pop queued jobs until one is still live for its priority, skipping stale entries
     fn get_next_job(&mut self) -> Option<ImageHash> {
         loop {
             let Job {
@@ -286,6 +303,7 @@ impl Gallery {
         }
     }
 
+    /// Compute column count and tile size from the viewport width
     fn get_grid_layout(&self, window: &Window) -> (usize, f32) {
         let avail = window.viewport_size().width.as_f32() - GRID_OUTER_MARGIN;
         let cols = match self.column_override {
@@ -298,6 +316,7 @@ impl Gallery {
         (cols, tile)
     }
 
+    /// Spawn background thumbnail jobs up to the concurrency limit
     fn process_jobs(&mut self, cx: &mut Context<Self>) {
         while self.num_running < self.num_concurrency {
             let Some(hash) = self.get_next_job() else {
@@ -325,6 +344,7 @@ impl Gallery {
         }
     }
 
+    /// Record a job's outcome, then pull more work from the queue
     fn on_job_finished(
         &mut self,
         hash: ImageHash,
@@ -353,6 +373,7 @@ impl Gallery {
         cx.notify();
     }
 
+    /// Rebuild filtered images, groups, and rows for the current page and query
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
         self.filtered_images = self.get_visible_hashes(&query);
@@ -404,6 +425,7 @@ impl Gallery {
         );
     }
 
+    /// Drop urgent jobs back to unknown so grid work yields to the lightbox
     fn deprioritize(&mut self) {
         for job in &self.queue {
             let is_queued = matches!(self.thumbs.get(&job.image_hash), Some(ThumbState::Queued));
@@ -415,23 +437,27 @@ impl Gallery {
         self.queue.retain(|j| j.priority == JobPriority::Deferred);
     }
 
+    /// Apply a new grid layout and rebuild rows to match
     fn set_layout(&mut self, columns: usize, tile_size: f32, cx: &mut Context<Self>) {
         self.num_columns = columns;
         self.tile_size = tile_size;
         self.refresh(cx);
     }
 
+    /// Show the lightbox for an image and pause urgent grid thumbnail work
     fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
         self.lightbox = Some(*hash);
         self.deprioritize();
         cx.notify();
     }
 
+    /// Dismiss the lightbox
     fn close_lightbox(&mut self, cx: &mut Context<Self>) {
         self.lightbox = None;
         cx.notify();
     }
 
+    /// Move the lightbox by delta within the filtered set, wrapping at the ends
     fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
         if self.filtered_images.is_empty() {
             return;
@@ -448,6 +474,7 @@ impl Gallery {
         self.open_lightbox(&next, cx);
     }
 
+    /// Collapse or expand a directory group
     fn toggle_group(&mut self, group_hash: &GroupHash, cx: &mut Context<Self>) {
         if !self.collapsed_groups.remove(group_hash) {
             self.collapsed_groups.insert(*group_hash);
@@ -456,7 +483,12 @@ impl Gallery {
         self.refresh(cx);
     }
 
+    /// Toggle a bookmark from the lightbox or a thumbnail context menu
     fn on_bookmark(&mut self, action: &actions::Bookmark, _: &mut Window, cx: &mut Context<Self>) {
+        let old_pos = self
+            .lightbox
+            .and_then(|hash| self.get_visible_position(&hash));
+
         match action {
             actions::Bookmark::Current => {
                 if let Some(hash) = self.lightbox {
@@ -472,12 +504,19 @@ impl Gallery {
         if self.page == Page::Bookmarks {
             if self.filtered_images.is_empty() {
                 self.close_lightbox(cx);
-            } else {
-                self.step(1, cx);
+            } else if let Some(current) = self.lightbox {
+                if self.get_visible_position(&current).is_some() {
+                    self.step(1, cx);
+                } else if let Some(pos) = old_pos {
+                    // Current image was unbookmarked; the next one slid into its slot
+                    let next = self.filtered_images[pos % self.filtered_images.len()];
+                    self.open_lightbox(&next, cx);
+                }
             }
         }
     }
 
+    /// Reveal an image's source file in the system file manager
     fn on_open_in_finder(
         &mut self,
         action: &actions::OpenInFinder,
@@ -497,6 +536,7 @@ impl Gallery {
         }
     }
 
+    /// Jump to an image on the gallery page, expanding its group and scrolling to its row
     fn on_reveal_in_gallery(
         &mut self,
         action: &actions::RevealInGallery,
@@ -533,6 +573,7 @@ impl Gallery {
         cx.notify();
     }
 
+    /// Move keyboard focus to the search input
     fn on_focus_search(
         &mut self,
         _: &actions::FocusSearch,
@@ -542,6 +583,7 @@ impl Gallery {
         self.input_focus_handle.focus(window, cx);
     }
 
+    /// Add or remove a bookmark and persist the change
     fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
         if let Some(index) = self.get_bookmark_index(image_hash) {
             self.bookmarks.remove(index);
@@ -553,11 +595,12 @@ impl Gallery {
         self.refresh(cx);
     }
 
+    /// Sync bookmarks into the shared config and save it to disk
     fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
         let current: HashSet<u64> = self.bookmarks.iter().map(|hash| hash.0).collect();
         let loaded: HashSet<u64> = self.images.iter().map(|image| image.hash).collect();
 
-        // Merge into config, only touching loaded hashes so other directories' bookmarks survive
+        // Merge into config, only touching loaded hashes to retain directories' bookmark
         self.state.update(cx, |state, _cx| {
             state
                 .config
@@ -581,6 +624,7 @@ impl Gallery {
         }
     }
 
+    /// Collapse every group, or expand all if everything is already collapsed
     fn on_collapse_all(
         &mut self,
         _: &actions::CollapseAll,
@@ -600,6 +644,7 @@ impl Gallery {
         self.refresh(cx);
     }
 
+    /// Open the lightbox at the first visible image on the current page
     fn on_open(&mut self, _: &actions::OpenLightbox, _: &mut Window, cx: &mut Context<Self>) {
         if self.filtered_images.is_empty() {
             return;
@@ -645,6 +690,7 @@ impl Gallery {
         self.step(1, cx);
     }
 
+    /// Cycle to the previous page, wrapping around
     fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
         let current_index: usize = self.page.into();
         let last_page = (current_index + NUM_PAGES - 1) % NUM_PAGES;
@@ -653,6 +699,7 @@ impl Gallery {
         self.refresh(cx);
     }
 
+    /// Cycle to the next page, wrapping around
     fn on_next_page(&mut self, _: &actions::NextPage, _: &mut Window, cx: &mut Context<Self>) {
         let current_index: usize = self.page.into();
         let next_page = (current_index + 1) % NUM_PAGES;
@@ -661,22 +708,26 @@ impl Gallery {
         self.refresh(cx);
     }
 
+    /// Enlarge tiles by removing a column, down to a minimum of one
     fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
         let current = self.column_override.unwrap_or(self.num_columns);
         self.column_override = Some((current - 1).max(1));
         cx.notify();
     }
 
+    /// Shrink tiles by adding a column, up to a maximum of twenty
     fn zoom_grid_out(&mut self, cx: &mut Context<Self>) {
         let current = self.column_override.unwrap_or(self.num_columns);
         self.column_override = Some((current + 1).min(20));
         cx.notify();
     }
 
+    /// Position of an image in the bookmark list, if bookmarked
     fn get_bookmark_index(&self, image_hash: &ImageHash) -> Option<usize> {
         self.bookmarks.iter().position(|h| h == image_hash)
     }
 
+    /// Re-filter the gallery as the search input changes
     fn on_input_event(
         &mut self,
         _: &Entity<InputState>,
@@ -693,6 +744,7 @@ impl Gallery {
         };
     }
 
+    /// Render a single list row, either a group header or a row of tiles
     fn render_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let Some(row) = self.rows.get(index).cloned() else {
             return div().into_any_element();
@@ -704,6 +756,7 @@ impl Gallery {
         }
     }
 
+    /// Render a collapsible group header with breadcrumb path and image count
     fn render_header_row(
         &mut self,
         group_hash: GroupHash,
@@ -766,6 +819,7 @@ impl Gallery {
             .into_any_element()
     }
 
+    /// Render one row of thumbnail tiles for a slice of the filtered images
     fn render_tile_row(
         &mut self,
         range: std::ops::Range<usize>,
@@ -795,6 +849,7 @@ impl Gallery {
             .into_any_element()
     }
 
+    /// Render a clickable thumbnail tile with context menu and loading placeholder
     fn render_thumb(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
         let source = self.get_thumb_path(hash, cx);
         let size = px(self.tile_size);
@@ -856,6 +911,7 @@ impl Gallery {
             .into_any_element()
     }
 
+    /// Build the right-click menu for a thumbnail
     fn thumb_context_menu(
         menu: gpui_component::menu::PopupMenu,
         hash: ImageHash,
@@ -892,6 +948,7 @@ impl Gallery {
             )
     }
 
+    /// Skeleton with a spinner shown while a thumbnail loads
     fn thumb_placeholder() -> impl IntoElement {
         div()
             .size_full()
@@ -907,6 +964,7 @@ impl Gallery {
             )
     }
 
+    /// Render the page navigation tabs
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         TabBar::new("navigation")
             .w_full()
@@ -943,6 +1001,7 @@ impl Gallery {
             )
     }
 
+    /// Render the toolbar with search input, image counts, and zoom controls
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let count_label = match self.page {
             Page::Gallery => format!(
@@ -1014,6 +1073,7 @@ impl Gallery {
             .child(controls())
     }
 
+    /// Render the placeholder shown when no images match
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .flex_1()
@@ -1023,6 +1083,7 @@ impl Gallery {
             .child("No images found.")
     }
 
+    /// Render the lightbox footer with position, name, size, and bookmark toggle
     fn render_info_bar(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = self.get_image_entry(hash).expect("image should exist");
         let name = label_for(&self.roots, &entry.src_path);
@@ -1113,6 +1174,7 @@ impl Gallery {
         )
     }
 
+    /// Render the full-size image with nav arrows, layering the thumb under it while it loads
     fn render_lightbox_content(
         &self,
         hash: &ImageHash,
@@ -1196,6 +1258,7 @@ impl Gallery {
             .child(next_button(cx))
     }
 
+    /// Render the fullscreen lightbox overlay with backdrop and info bar
     fn render_lightbox(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .image_cache(super::cache::simple_lru_cache(
@@ -1224,6 +1287,7 @@ impl Gallery {
             .child(self.render_info_bar(hash, cx))
     }
 
+    /// Render the virtualized image grid with its scrollbar
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .image_cache(super::cache::simple_lru_cache(
