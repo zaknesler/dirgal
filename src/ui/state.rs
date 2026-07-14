@@ -7,12 +7,12 @@ pub struct AppState {
     pub images: Vec<crate::image::ImageEntry>,
 }
 
+impl gpui::EventEmitter<()> for AppState {}
+
 #[derive(Clone)]
 pub struct SharedAppState(pub gpui::Entity<AppState>);
 
 impl gpui::Global for SharedAppState {}
-
-impl gpui::EventEmitter<()> for AppState {}
 
 impl SharedAppState {
     pub fn new(initial_state: AppState, cx: &mut gpui::App) -> Self {
