@@ -1,7 +1,7 @@
 use crate::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES, format_bytes},
-    path::{group_segments, label_for},
+    path::{compare_paths, group_segments, label_for},
     ui::model::*,
     ui::*,
     util,
@@ -9,7 +9,7 @@ use crate::{
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListOffset, ListState,
     MouseDownEvent, ObjectFit, ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*,
-    px,
+    px, rems,
 };
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _,
@@ -28,6 +28,8 @@ use gpui_component::{
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+const DEBUG: bool = false;
 
 const TILE_MIN: f32 = 200.0;
 const GRID_GAP: f32 = 6.0;
@@ -187,32 +189,25 @@ impl Gallery {
     }
 
     fn get_computed_groups(&self) -> Vec<Group> {
-        // Map of image hash to their parent directory
-        let hash_to_parent: HashMap<ImageHash, PathBuf> = self
-            .images
-            .iter()
-            .map(|e| {
-                let parent = e.src_path.parent().unwrap_or(Path::new("")).to_path_buf();
-                (ImageHash(e.hash), parent)
-            })
-            .collect();
-
         let mut groups: Vec<Group> = Vec::new();
+        let mut path_to_index: HashMap<PathBuf, usize> = HashMap::new();
 
         for &hash in &self.filtered_images {
-            let parent = hash_to_parent[&hash].clone();
-            if let Some(last) = groups.last_mut()
-                && last.path == parent
-            {
-                last.image_hashes.push(hash);
-                continue;
+            let parent = self
+                .get_image_entry(&hash)
+                .and_then(|e| e.src_path.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_default();
+            if let Some(&idx) = path_to_index.get(&parent) {
+                groups[idx].image_hashes.push(hash);
+            } else {
+                let idx = groups.len();
+                path_to_index.insert(parent.clone(), idx);
+                groups.push(Group {
+                    hash: GroupHash(hash_path(&parent)),
+                    path: parent,
+                    image_hashes: vec![hash],
+                });
             }
-
-            groups.push(Group {
-                hash: GroupHash(hash_path(&parent)),
-                path: parent,
-                image_hashes: vec![hash],
-            });
         }
 
         groups
@@ -351,6 +346,28 @@ impl Gallery {
         let query = self.input.read(cx).value();
         let candidates = self.get_candidate_images();
         self.filtered_images = self.get_visible_hashes(&candidates, &query);
+
+        let src_paths: HashMap<ImageHash, Arc<Path>> = self
+            .filtered_images
+            .iter()
+            .filter_map(|&h| self.get_image_entry(&h).map(|e| (h, e.src_path.clone())))
+            .collect();
+
+        self.filtered_images.sort_by(|a, b| {
+            let path_a = src_paths
+                .get(a)
+                .map(|p| p.as_ref())
+                .unwrap_or(Path::new(""));
+            let path_b = src_paths
+                .get(b)
+                .map(|p| p.as_ref())
+                .unwrap_or(Path::new(""));
+            let pa = path_a.parent().unwrap_or(Path::new(""));
+            let pb = path_b.parent().unwrap_or(Path::new(""));
+            compare_paths(pa, pb).then_with(|| compare_paths(path_a, path_b))
+        });
+
+        self.filtered_images.dedup_by_key(|h| *h);
 
         let old_rows = std::mem::take(&mut self.rows);
         let cols = self.num_columns.max(1);
@@ -805,6 +822,8 @@ impl Gallery {
             .map(|e| e.src_path.to_path_buf())
             .expect("image should exist");
 
+        let path_str = src_path.to_string_lossy().to_string();
+
         div()
             .key_context(super::CONTEXT_GALLERY)
             .id(hash.0 as usize)
@@ -813,6 +832,7 @@ impl Gallery {
             .rounded_md()
             .overflow_hidden()
             .border_1()
+            .relative()
             .border_color(cx.theme().border)
             .hover(|s| s.border_color(gpui::rgb(COLOR_ACCENT)))
             .cursor_pointer()
@@ -869,6 +889,20 @@ impl Gallery {
                             .justify_center()
                             .child(Spinner::new().large()),
                     ),
+            })
+            .when(DEBUG, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .p_1p5()
+                        .text_xs()
+                        .line_height(rems(1.1))
+                        .bg(cx.theme().background)
+                        .text_color(cx.theme().foreground)
+                        .child(path_str),
+                )
             })
             .into_any_element()
     }
