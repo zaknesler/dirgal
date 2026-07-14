@@ -1,4 +1,7 @@
-use crate::hash::{hash_content, hash_path};
+use crate::{
+    error::AppResult,
+    hash::{hash_content, hash_path},
+};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -54,8 +57,7 @@ impl ImageEntry {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    pub fn generate_thumbnail(&self) -> Result<(), String> {
+    pub fn generate_thumbnail(&self) -> AppResult<()> {
         let src = &self.src_path;
         let dst = &self.thumb_path;
 
@@ -63,34 +65,24 @@ impl ImageEntry {
             return Ok(());
         }
 
-        let image = image::open(src).map_err(|e| {
-            tracing::warn!(src = %src.display(), error = %e, "failed to open image");
-            e.to_string()
-        })?;
+        let image = image::ImageReader::open(src)?
+            .with_guessed_format()?
+            .decode()?;
 
-        let thumb = if image.width() <= THUMB_PX && image.height() <= THUMB_PX {
+        let image_already_small = image.width() <= THUMB_PX && image.height() <= THUMB_PX;
+        let thumb = if image_already_small {
             image
         } else {
             image.thumbnail(THUMB_PX, THUMB_PX)
         };
 
         let tmp = dst.with_extension("tmp");
-
-        thumb
-            .save_with_format(&tmp, image::ImageFormat::Png)
-            .map_err(|e| {
-                tracing::warn!(dst = %dst.display(), error = %e, "failed to save thumbnail");
-                e.to_string()
-            })?;
-
-        fs::rename(&tmp, dst).map_err(|e| {
-            tracing::warn!(dst = %dst.display(), error = %e, "failed to rename thumbnail into place");
-            e.to_string()
-        })
+        thumb.save_with_format(&tmp, image::ImageFormat::Png)?;
+        fs::rename(&tmp, dst)?;
+        Ok(())
     }
 }
 
-#[tracing::instrument(level = "debug", skip(roots, thumb_dir))]
 pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut found: Vec<FoundFile> = Vec::new();

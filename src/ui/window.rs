@@ -5,7 +5,6 @@ use crate::ui::{
 };
 use gpui::{App, AppContext as _, KeyBinding, TitlebarOptions, WindowOptions};
 
-#[tracing::instrument(skip(state))]
 pub fn create_window(state: AppState) {
     gpui_platform::application()
         .with_assets(gpui_component_assets::Assets)

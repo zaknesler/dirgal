@@ -34,7 +34,7 @@ fn main() -> error::AppResult<()> {
     tracing::info!("found {} images", images.len());
 
     if args.prefetch {
-        scan::run(&images);
+        scan::run(&images)?;
     }
 
     let state = AppState {

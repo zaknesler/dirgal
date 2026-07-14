@@ -25,4 +25,7 @@ pub enum AppError {
 
     #[error(transparent)]
     TomlError(#[from] toml::ser::Error),
+
+    #[error(transparent)]
+    ProgressTemplateError(#[from] indicatif::style::TemplateError),
 }

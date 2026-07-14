@@ -319,7 +319,7 @@ impl Gallery {
                     gallery.thumbs.insert(
                         hash,
                         match result {
-                            Ok(()) => {
+                            Ok(_) => {
                                 let p = gallery
                                     .get_image_entry(&hash)
                                     .expect("image should exist")
@@ -327,12 +327,12 @@ impl Gallery {
                                     .clone();
                                 ThumbState::Ready(p)
                             }
-                            Err(e) => {
+                            Err(err) => {
                                 let path = gallery
                                     .get_image_entry(&hash)
                                     .map(|e| e.src_path.display().to_string())
                                     .unwrap_or_default();
-                                tracing::warn!(path, error = %e, "thumbnail generation failed");
+                                tracing::warn!(path, error = %err, "thumbnail generation failed");
                                 ThumbState::Failed
                             }
                         },
