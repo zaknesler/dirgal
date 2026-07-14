@@ -57,6 +57,7 @@ impl ImageEntry {
         }
     }
 
+    /// Generate and save the thumbnail in the thumbnail directory
     pub fn generate_thumbnail(&self) -> AppResult<()> {
         let src = &self.src_path;
         let dst = &self.thumb_path;
@@ -83,6 +84,7 @@ impl ImageEntry {
     }
 }
 
+/// Collect all image files in the given roots
 pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut found: Vec<FoundFile> = Vec::new();
@@ -114,6 +116,7 @@ pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
         .collect()
 }
 
+/// Walk the given root directory recursively and collect all image files
 fn walk_images(root: &Path) -> Vec<ignore::DirEntry> {
     WalkBuilder::new(root)
         .build()
@@ -122,6 +125,7 @@ fn walk_images(root: &Path) -> Vec<ignore::DirEntry> {
         .collect()
 }
 
+/// Check whether the given path is an image file
 fn is_image(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -129,6 +133,7 @@ fn is_image(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Get the stats of the given entry (size, modified, created)
 fn entry_stats(entry: &ignore::DirEntry) -> (u64, Option<SystemTime>, Option<SystemTime>) {
     entry
         .metadata()
@@ -137,6 +142,7 @@ fn entry_stats(entry: &ignore::DirEntry) -> (u64, Option<SystemTime>, Option<Sys
         .unwrap_or((0, None, None))
 }
 
+/// Format the given number of bytes as a human-readable string
 pub fn format_bytes(bytes: u64) -> String {
     format_size(bytes, FormatSizeOptions::from(BINARY).decimal_places(1))
 }

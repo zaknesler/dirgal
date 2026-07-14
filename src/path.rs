@@ -1,6 +1,33 @@
 use gpui::SharedString;
 use std::path::{Path, PathBuf};
 
+/// Expand all root directories for the given paths
+pub fn get_roots(paths: Option<Vec<String>>) -> Vec<PathBuf> {
+    paths
+        .unwrap_or_else(|| vec![".".to_string()])
+        .into_iter()
+        .map(|path| {
+            let path = PathBuf::from(path);
+            std::fs::canonicalize(&path).unwrap_or(path)
+        })
+        .collect()
+}
+
+/// Get the thumbnail cache directory for the current OS
+pub fn get_thumbnail_dir() -> PathBuf {
+    let thumb_dir = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(env!("CARGO_PKG_NAME"))
+        .join("thumbnails");
+
+    if let Err(e) = std::fs::create_dir_all(&thumb_dir) {
+        tracing::warn!(dir = %thumb_dir.display(), error = %e, "could not create thumbnail cache, using local directory");
+        return PathBuf::from("thumbnails");
+    }
+
+    thumb_dir
+}
+
 /// Find the deepest root that contains the given path
 pub fn matching_root<'a>(roots: &'a [PathBuf], path: &Path) -> Option<&'a PathBuf> {
     roots

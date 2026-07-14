@@ -20,6 +20,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    /// Load the config from disk with an optional override path
     pub fn load(override_path: Option<String>) -> AppResult<AppConfig> {
         Self::init_config_file()?;
 
@@ -44,6 +45,7 @@ impl AppConfig {
         Ok(config.extract()?)
     }
 
+    /// Save the config to disk
     pub fn save(&self) -> AppResult<()> {
         let config_dir = Self::get_config_dir()?;
         let contents = toml::to_string_pretty(self)?;
@@ -52,11 +54,13 @@ impl AppConfig {
         Ok(())
     }
 
+    /// Get the default data for the config file
     fn get_default_data() -> Vec<u8> {
         let default = StubAssetDir::get(DEFAULT_FILE_NAME).expect("default.toml stub should exist");
         default.data.as_ref().to_owned()
     }
 
+    /// Get the path to the config directory
     fn get_config_dir() -> AppResult<PathBuf> {
         directories::ProjectDirs::from("", "", PROJECT_DIR)
             .map(|dirs| dirs.config_dir().to_path_buf())

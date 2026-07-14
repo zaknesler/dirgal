@@ -1,8 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use crate::ui::state::AppState;
-use clap::Parser;
-use std::path::PathBuf;
+use clap::Parser as _;
 
 mod cli;
 mod config;
@@ -21,8 +19,8 @@ fn main() -> error::AppResult<()> {
 
     let config = config::AppConfig::load(args.config)?;
 
-    let roots = get_roots(args.paths);
-    let thumb_dir = get_thumbnail_dir();
+    let roots = path::get_roots(args.paths);
+    let thumb_dir = path::get_thumbnail_dir();
 
     if args.purge {
         util::purge_thumbnails(&thumb_dir);
@@ -37,7 +35,7 @@ fn main() -> error::AppResult<()> {
         scan::run(&images)?;
     }
 
-    let state = AppState {
+    let state = ui::state::AppState {
         config,
         roots,
         images,
@@ -46,31 +44,6 @@ fn main() -> error::AppResult<()> {
     ui::window::create_window(state);
 
     Ok(())
-}
-
-fn get_roots(paths: Option<Vec<String>>) -> Vec<PathBuf> {
-    paths
-        .unwrap_or_else(|| vec![".".to_string()])
-        .into_iter()
-        .map(|path| {
-            let path = PathBuf::from(path);
-            std::fs::canonicalize(&path).unwrap_or(path)
-        })
-        .collect()
-}
-
-fn get_thumbnail_dir() -> PathBuf {
-    let thumb_dir = dirs::cache_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join(env!("CARGO_PKG_NAME"))
-        .join("thumbnails");
-
-    if let Err(e) = std::fs::create_dir_all(&thumb_dir) {
-        tracing::warn!(dir = %thumb_dir.display(), error = %e, "could not create thumbnail cache, using local directory");
-        return PathBuf::from("thumbnails");
-    }
-
-    thumb_dir
 }
 
 fn init_tracing(log_level: cli::LogLevel) -> error::AppResult<()> {

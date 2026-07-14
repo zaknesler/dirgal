@@ -6,6 +6,7 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::sync::Mutex;
 
+/// Generate thumbnails for the given images
 pub fn run(images: &[ImageEntry]) -> AppResult<()> {
     let existing = images.iter().filter(|i| i.thumb_exists).count();
     let pending = images

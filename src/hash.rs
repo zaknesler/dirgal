@@ -5,12 +5,14 @@ use std::path::Path;
 
 use crate::error::AppResult;
 
+/// Hash the path of the given file
 pub fn hash_path(path: &Path) -> u64 {
     let mut hasher = SeaHasher::new();
     hasher.write(path.as_os_str().as_encoded_bytes());
     hasher.finish()
 }
 
+/// Hash the content of the given file via the first 8KB of the file
 pub fn hash_content(path: &Path) -> AppResult<u64> {
     let mut file = std::fs::File::open(path)?;
     let file_len = std::fs::metadata(path)?.len();
