@@ -27,12 +27,10 @@ fn main() -> error::AppResult<()> {
         return Ok(());
     }
 
-    let images = image::collect_images(&roots, &thumb_dir);
-
-    tracing::info!("found {} images", images.len());
+    let images = scan::collect_images(&roots, &thumb_dir)?;
 
     if args.prefetch {
-        scan::run(&images)?;
+        scan::generate_thumbnails(&images)?;
     }
 
     let state = ui::state::AppState {

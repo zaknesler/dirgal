@@ -35,10 +35,10 @@ pub struct ImageEntry {
 }
 
 pub struct FoundFile {
-    path: PathBuf,
-    bytes: u64,
-    modified: Option<SystemTime>,
-    created: Option<SystemTime>,
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub modified: Option<SystemTime>,
+    pub created: Option<SystemTime>,
 }
 
 impl ImageEntry {
@@ -88,49 +88,13 @@ impl ImageEntry {
     }
 }
 
-/// Collect all image files in the given roots
-pub fn collect_images(roots: &[PathBuf], thumb_dir: &Path) -> Vec<ImageEntry> {
-    let mut seen: HashSet<PathBuf> = HashSet::new();
-    let mut found: Vec<FoundFile> = Vec::new();
-
-    for root in roots {
-        if !root.is_dir() {
-            tracing::warn!(root = %root.display(), "not a directory, skipping");
-            continue;
-        }
-
-        for entry in walk_images(root) {
-            if seen.insert(entry.path().to_path_buf()) {
-                let (bytes, modified, created) = entry_stats(&entry);
-                found.push(FoundFile {
-                    path: entry.into_path(),
-                    bytes,
-                    modified,
-                    created,
-                });
-            }
-        }
-    }
-
-    found.sort_by(|a, b| crate::path::compare_paths(&a.path, &b.path));
-
-    found
-        .into_iter()
-        .map(|f| ImageEntry::new(f, thumb_dir))
-        .collect()
-}
-
-/// Walk the given root directory recursively and collect all image files
-fn walk_images(root: &Path) -> Vec<ignore::DirEntry> {
-    WalkBuilder::new(root)
-        .build()
-        .flatten()
-        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()) && is_image(e.path()))
-        .collect()
+/// Construct a walker that will recursively walk the given root directory
+pub fn build_root_walker(root: &Path) -> ignore::Walk {
+    WalkBuilder::new(root).build()
 }
 
 /// Check whether the given path is an image file
-fn is_image(path: &Path) -> bool {
+pub fn is_image(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .map(|e| Img::extensions().contains(&e.to_ascii_lowercase().as_str()))
@@ -138,7 +102,7 @@ fn is_image(path: &Path) -> bool {
 }
 
 /// Get the stats of the given entry (size, modified, created)
-fn entry_stats(entry: &ignore::DirEntry) -> (u64, Option<SystemTime>, Option<SystemTime>) {
+pub fn entry_stats(entry: &ignore::DirEntry) -> (u64, Option<SystemTime>, Option<SystemTime>) {
     entry
         .metadata()
         .ok()
