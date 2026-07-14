@@ -1,7 +1,7 @@
 use crate::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES, format_bytes},
-    path::{compare_paths_grouped, group_segments, label_for},
+    path::{group_segments, label_for},
     ui::model::*,
     ui::*,
     util,
@@ -12,13 +12,14 @@ use gpui::{
     px, rems,
 };
 use gpui_component::{
-    ActiveTheme, IconName, Sizable as _,
+    ActiveTheme, IconName, IndexPath, Selectable as _, Sizable as _,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::ContextMenuExt,
     scroll::Scrollbar,
+    select::{Select, SelectEvent, SelectState},
     skeleton::Skeleton,
     spinner::Spinner,
     tab::{Tab, TabBar},
@@ -62,6 +63,9 @@ pub struct Gallery {
     input: Entity<InputState>,
     input_focus_handle: FocusHandle,
     lightbox: Option<ImageHash>,
+    sort: Sort,
+    sort_select: Entity<SelectState<Vec<String>>>,
+    grouped: bool,
 
     // Data
     roots: Vec<PathBuf>,
@@ -103,7 +107,8 @@ impl Gallery {
 
         let snapshot = state.read(cx).clone();
 
-        let images = Self::normalize_images(snapshot.images);
+        let sort = Sort::default();
+        let images = crate::image::deduplicate_and_sort(snapshot.images, sort);
 
         let queue: VecDeque<Job> = images
             .iter()
@@ -128,6 +133,21 @@ impl Gallery {
         cx.subscribe_in(&input, window, Self::on_input_event)
             .detach();
 
+        let sort_index = SortKey::ALL.iter().position(|(k, _)| *k == sort.key);
+        let sort_select = cx.new(|cx| {
+            SelectState::new(
+                SortKey::ALL
+                    .iter()
+                    .map(|(_, l)| l.to_string())
+                    .collect::<Vec<_>>(),
+                sort_index.map(IndexPath::new),
+                window,
+                cx,
+            )
+        });
+        cx.subscribe_in(&sort_select, window, Self::on_sort)
+            .detach();
+
         let image_index = images
             .iter()
             .enumerate()
@@ -143,6 +163,9 @@ impl Gallery {
             input,
             input_focus_handle,
             lightbox: None,
+            sort,
+            sort_select,
+            grouped: true,
             roots: snapshot.roots,
             images,
             image_index,
@@ -165,17 +188,64 @@ impl Gallery {
         this
     }
 
-    /// Dedup by content hash (keep last), then sort so each directory's images are contiguous
-    fn normalize_images(images: Vec<ImageEntry>) -> Vec<ImageEntry> {
-        let mut seen = HashSet::new();
-        let mut images: Vec<ImageEntry> = images
-            .into_iter()
-            .rev()
-            .filter(|e| seen.insert(e.hash))
+    /// Apply a new sort reorder images and rebuild the index
+    fn set_sort(&mut self, sort: Sort, cx: &mut Context<Self>) {
+        if self.sort == sort {
+            return;
+        }
+        self.sort = sort;
+
+        // Already deduped so just re-sort in place and rebuild the index
+        self.images
+            .sort_by(|a, b| crate::image::compare_key(a, b, sort));
+        self.image_index = self
+            .images
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (ImageHash(e.hash), i))
             .collect();
 
-        images.sort_by(|a, b| compare_paths_grouped(&a.src_path, &b.src_path));
-        images
+        // Bookmarks follow image order so rebuild them from config
+        self.bookmarks =
+            Self::bookmarks_from_config(&self.state.read(cx).config.bookmarks, &self.images);
+
+        self.refresh(cx);
+    }
+
+    /// Toggle sort direction from the toolbar button
+    fn toggle_sort_direction(&mut self, cx: &mut Context<Self>) {
+        let sort = Sort {
+            ascending: !self.sort.ascending,
+            ..self.sort
+        };
+        self.set_sort(sort, cx);
+    }
+
+    /// Toggle directory grouping where off flows all images flat like the bookmarks list
+    fn toggle_grouped(&mut self, cx: &mut Context<Self>) {
+        self.grouped = !self.grouped;
+        self.refresh(cx);
+    }
+
+    /// React to a sort-field selection from the dropdown
+    fn on_sort(
+        &mut self,
+        _: &Entity<SelectState<Vec<String>>>,
+        event: &SelectEvent<Vec<String>>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let SelectEvent::Confirm(Some(label)) = event else {
+            return;
+        };
+        let Some((key, _)) = SortKey::ALL.iter().find(|(_, l)| *l == label.as_str()) else {
+            return;
+        };
+        let sort = Sort {
+            key: *key,
+            ..self.sort
+        };
+        self.set_sort(sort, cx);
     }
 
     /// Resolve configured bookmark hashes against loaded images, dropping unknowns
@@ -189,8 +259,14 @@ impl Gallery {
             .collect()
     }
 
-    /// Hashes for the current page, filtered by a case-insensitive path search
+    /// Whether the current view groups images by directory
+    fn is_grouped(&self) -> bool {
+        self.grouped && self.page == Page::Gallery
+    }
+
+    /// Hashes for the current page in sort key order filtered by a case insensitive path search
     fn get_visible_hashes(&self, query: &str) -> Vec<ImageHash> {
+        // self.bookmarks is always kept in image sort order
         let candidates: Vec<ImageHash> = match self.page {
             Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
             Page::Bookmarks => self.bookmarks.clone(),
@@ -212,7 +288,7 @@ impl Gallery {
             .collect()
     }
 
-    /// Group filtered images by parent directory (contiguous since `images` is pre-sorted)
+    /// Group filtered images by parent directory which is contiguous since filtered_images is parent sorted
     fn get_computed_groups(&self) -> Vec<Group> {
         let mut groups: Vec<Group> = Vec::new();
 
@@ -376,30 +452,40 @@ impl Gallery {
     /// Rebuild filtered images, groups, and rows for the current page and query
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
-        self.filtered_images = self.get_visible_hashes(&query);
+        let grouped = self.is_grouped();
+        let mut filtered = self.get_visible_hashes(&query);
+
+        // Grouped view needs same directory images contiguous and a stable sort by parent
+        // keeps their sort key order within each group intact
+        if grouped {
+            filtered.sort_by(
+                |a, b| match (self.get_image_entry(a), self.get_image_entry(b)) {
+                    (Some(x), Some(y)) => crate::image::compare_parents(x, y),
+                    _ => std::cmp::Ordering::Equal,
+                },
+            );
+        }
+        self.filtered_images = filtered;
 
         let old_rows = std::mem::take(&mut self.rows);
         let cols = self.num_columns.max(1);
 
-        match self.page {
-            Page::Gallery => {
-                self.groups = self.get_computed_groups();
+        if grouped {
+            self.groups = self.get_computed_groups();
 
-                let mut offset = 0;
-                for group in &self.groups {
-                    self.rows.push(Row::Header(group.hash));
-                    let len = group.image_hashes.len();
-                    if !self.collapsed_groups.contains(&group.hash) {
-                        self.rows.extend(Row::chunk_tiles(offset, len, cols));
-                    }
-                    offset += len;
+            let mut offset = 0;
+            for group in &self.groups {
+                self.rows.push(Row::Header(group.hash));
+                let len = group.image_hashes.len();
+                if !self.collapsed_groups.contains(&group.hash) {
+                    self.rows.extend(Row::chunk_tiles(offset, len, cols));
                 }
+                offset += len;
             }
-            Page::Bookmarks => {
-                self.groups.clear();
-                self.rows
-                    .extend(Row::chunk_tiles(0, self.filtered_images.len(), cols));
-            }
+        } else {
+            self.groups.clear();
+            self.rows
+                .extend(Row::chunk_tiles(0, self.filtered_images.len(), cols));
         }
 
         self.splice_changed_rows(&old_rows);
@@ -483,8 +569,149 @@ impl Gallery {
         self.refresh(cx);
     }
 
-    /// Toggle a bookmark from the lightbox or a thumbnail context menu
-    fn on_bookmark(&mut self, action: &actions::Bookmark, _: &mut Window, cx: &mut Context<Self>) {
+    /// Add or remove a bookmark and persist the change
+    fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
+        if let Some(index) = self.get_bookmark_index(image_hash) {
+            self.bookmarks.remove(index);
+        } else {
+            self.bookmarks.push(*image_hash);
+        }
+
+        self.persist_bookmarks(cx);
+        self.refresh(cx);
+    }
+
+    /// Sync bookmarks into the shared config and save it to disk
+    fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
+        let current: HashSet<u64> = self.bookmarks.iter().map(|hash| hash.0).collect();
+        let loaded: HashSet<u64> = self.images.iter().map(|image| image.hash).collect();
+
+        // Merge into config, only touching loaded hashes to retain directories' bookmark
+        self.state.update(cx, |state, _cx| {
+            state
+                .config
+                .bookmarks
+                .retain(|h| !loaded.contains(h) || current.contains(h));
+
+            for hash in &self.bookmarks {
+                if !state.config.bookmarks.contains(&hash.0) {
+                    state.config.bookmarks.push(hash.0);
+                }
+            }
+        });
+
+        self.bookmarks =
+            Self::bookmarks_from_config(&self.state.read(cx).config.bookmarks, &self.images);
+
+        cx.notify();
+
+        if let Err(e) = self.state.read(cx).config.save() {
+            tracing::warn!(error = %e, "failed to save bookmarks to config");
+        }
+    }
+
+    /// Enlarge tiles by removing a column, down to a minimum of one
+    fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
+        let current = self.column_override.unwrap_or(self.num_columns);
+        self.column_override = Some((current - 1).max(1));
+        cx.notify();
+    }
+
+    /// Shrink tiles by adding a column, up to a maximum of twenty
+    fn zoom_grid_out(&mut self, cx: &mut Context<Self>) {
+        let current = self.column_override.unwrap_or(self.num_columns);
+        self.column_override = Some((current + 1).min(20));
+        cx.notify();
+    }
+
+    /// Position of an image in the bookmark list, if bookmarked
+    fn get_bookmark_index(&self, image_hash: &ImageHash) -> Option<usize> {
+        self.bookmarks.iter().position(|h| h == image_hash)
+    }
+
+    /// Re-filter the gallery as the search input changes
+    fn on_input_event(
+        &mut self,
+        _: &Entity<InputState>,
+        event: &InputEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            InputEvent::Change | InputEvent::PressEnter { .. } => {
+                cx.stop_propagation();
+                self.refresh(cx);
+            }
+            _ => {}
+        };
+    }
+
+    fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
+        self.step(-1, cx);
+    }
+
+    fn on_next(&mut self, _: &actions::Next, _: &mut Window, cx: &mut Context<Self>) {
+        self.step(1, cx);
+    }
+
+    fn on_open_lightbox(
+        &mut self,
+        _: &actions::OpenLightbox,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.filtered_images.is_empty() {
+            return;
+        }
+
+        let first = if self.is_grouped() {
+            self.groups
+                .iter()
+                .find(|g| !self.collapsed_groups.contains(&g.hash))
+                .and_then(|g| g.image_hashes.first())
+                .copied()
+        } else {
+            self.filtered_images.first().copied()
+        };
+
+        if let Some(hash) = first {
+            self.open_lightbox(&hash, cx);
+        }
+    }
+
+    /// Toggle directory grouping
+    fn on_toggle_grouped(
+        &mut self,
+        _: &actions::ToggleGrouped,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_grouped(cx);
+    }
+
+    fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {
+        self.close_lightbox(cx);
+    }
+
+    fn on_zoom_in(&mut self, _: &actions::ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
+        self.zoom_grid_in(cx);
+    }
+
+    fn on_zoom_out(&mut self, _: &actions::ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
+        self.zoom_grid_out(cx);
+    }
+
+    fn on_zoom_reset(&mut self, _: &actions::ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
+        self.column_override = None;
+        cx.notify();
+    }
+
+    fn on_toggle_bookmark(
+        &mut self,
+        action: &actions::Bookmark,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let old_pos = self
             .lightbox
             .and_then(|hash| self.get_visible_position(&hash));
@@ -583,113 +810,6 @@ impl Gallery {
         self.input_focus_handle.focus(window, cx);
     }
 
-    /// Add or remove a bookmark and persist the change
-    fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
-        if let Some(index) = self.get_bookmark_index(image_hash) {
-            self.bookmarks.remove(index);
-        } else {
-            self.bookmarks.push(*image_hash);
-        }
-
-        self.persist_bookmarks(cx);
-        self.refresh(cx);
-    }
-
-    /// Sync bookmarks into the shared config and save it to disk
-    fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
-        let current: HashSet<u64> = self.bookmarks.iter().map(|hash| hash.0).collect();
-        let loaded: HashSet<u64> = self.images.iter().map(|image| image.hash).collect();
-
-        // Merge into config, only touching loaded hashes to retain directories' bookmark
-        self.state.update(cx, |state, _cx| {
-            state
-                .config
-                .bookmarks
-                .retain(|h| !loaded.contains(h) || current.contains(h));
-
-            for hash in &self.bookmarks {
-                if !state.config.bookmarks.contains(&hash.0) {
-                    state.config.bookmarks.push(hash.0);
-                }
-            }
-        });
-
-        self.bookmarks =
-            Self::bookmarks_from_config(&self.state.read(cx).config.bookmarks, &self.images);
-
-        cx.notify();
-
-        if let Err(e) = self.state.read(cx).config.save() {
-            tracing::warn!(error = %e, "failed to save bookmarks to config");
-        }
-    }
-
-    /// Collapse every group, or expand all if everything is already collapsed
-    fn on_collapse_all(
-        &mut self,
-        _: &actions::CollapseAll,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.page == Page::Bookmarks {
-            return;
-        }
-
-        if self.collapsed_groups.len() == self.groups.len() {
-            self.collapsed_groups.clear();
-        } else {
-            self.collapsed_groups = self.groups.iter().map(|g| g.hash).collect();
-        }
-
-        self.refresh(cx);
-    }
-
-    /// Open the lightbox at the first visible image on the current page
-    fn on_open(&mut self, _: &actions::OpenLightbox, _: &mut Window, cx: &mut Context<Self>) {
-        if self.filtered_images.is_empty() {
-            return;
-        }
-
-        let first = match self.page {
-            Page::Gallery => self
-                .groups
-                .iter()
-                .find(|g| !self.collapsed_groups.contains(&g.hash))
-                .and_then(|g| g.image_hashes.first())
-                .copied(),
-            Page::Bookmarks => self.filtered_images.first().copied(),
-        };
-
-        if let Some(hash) = first {
-            self.open_lightbox(&hash, cx);
-        }
-    }
-
-    fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_lightbox(cx);
-    }
-
-    fn on_zoom_in(&mut self, _: &actions::ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
-        self.zoom_grid_in(cx);
-    }
-
-    fn on_zoom_out(&mut self, _: &actions::ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
-        self.zoom_grid_out(cx);
-    }
-
-    fn on_zoom_reset(&mut self, _: &actions::ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
-        self.column_override = None;
-        cx.notify();
-    }
-
-    fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
-        self.step(-1, cx);
-    }
-
-    fn on_next(&mut self, _: &actions::Next, _: &mut Window, cx: &mut Context<Self>) {
-        self.step(1, cx);
-    }
-
     /// Cycle to the previous page, wrapping around
     fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
         let current_index: usize = self.page.into();
@@ -708,40 +828,24 @@ impl Gallery {
         self.refresh(cx);
     }
 
-    /// Enlarge tiles by removing a column, down to a minimum of one
-    fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
-        let current = self.column_override.unwrap_or(self.num_columns);
-        self.column_override = Some((current - 1).max(1));
-        cx.notify();
-    }
-
-    /// Shrink tiles by adding a column, up to a maximum of twenty
-    fn zoom_grid_out(&mut self, cx: &mut Context<Self>) {
-        let current = self.column_override.unwrap_or(self.num_columns);
-        self.column_override = Some((current + 1).min(20));
-        cx.notify();
-    }
-
-    /// Position of an image in the bookmark list, if bookmarked
-    fn get_bookmark_index(&self, image_hash: &ImageHash) -> Option<usize> {
-        self.bookmarks.iter().position(|h| h == image_hash)
-    }
-
-    /// Re-filter the gallery as the search input changes
-    fn on_input_event(
+    /// Collapse every group, or expand all if everything is already collapsed
+    fn on_toggle_collapse(
         &mut self,
-        _: &Entity<InputState>,
-        event: &InputEvent,
+        _: &actions::CollapseAll,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match event {
-            InputEvent::Change | InputEvent::PressEnter { .. } => {
-                cx.stop_propagation();
-                self.refresh(cx);
-            }
-            _ => {}
-        };
+        if !self.is_grouped() {
+            return;
+        }
+
+        if self.collapsed_groups.len() == self.groups.len() {
+            self.collapsed_groups.clear();
+        } else {
+            self.collapsed_groups = self.groups.iter().map(|g| g.hash).collect();
+        }
+
+        self.refresh(cx);
     }
 
     /// Render a single list row, either a group header or a row of tiles
@@ -892,7 +996,7 @@ impl Gallery {
                         .overflow_hidden()
                         .object_fit(ObjectFit::Cover),
                 ),
-                None => tile.relative().child(Self::thumb_placeholder()),
+                None => tile.relative().child(Self::render_thumb_placeholder()),
             })
             .when(DEBUG, |el| {
                 el.child(
@@ -936,20 +1040,20 @@ impl Gallery {
             .separator()
             .when(page == Page::Bookmarks, |menu| {
                 menu.menu_with_icon(
-                    "Reveal in Gallery",
+                    "Reveal in gallery",
                     IconName::GalleryVerticalEnd,
                     Box::new(actions::RevealInGallery(hash)),
                 )
             })
             .menu_with_icon(
-                "Reveal in Finder",
+                "Open in finder",
                 IconName::FolderOpen,
                 Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
             )
     }
 
     /// Skeleton with a spinner shown while a thumbnail loads
-    fn thumb_placeholder() -> impl IntoElement {
+    fn render_thumb_placeholder() -> impl IntoElement {
         div()
             .size_full()
             .child(Skeleton::new().secondary().w_full().h_full())
@@ -1004,11 +1108,12 @@ impl Gallery {
     /// Render the toolbar with search input, image counts, and zoom controls
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let count_label = match self.page {
-            Page::Gallery => format!(
+            Page::Gallery if self.grouped => format!(
                 "{} images in {} folders",
                 util::format_num(self.filtered_images.len()),
                 util::format_num(self.groups.len())
             ),
+            Page::Gallery => format!("{} images", util::format_num(self.filtered_images.len())),
             Page::Bookmarks => format!(
                 "{} bookmarked images",
                 util::format_num(self.filtered_images.len())
@@ -1036,30 +1141,81 @@ impl Gallery {
                 )
         };
 
+        let sort_ascending = self.sort.ascending;
+        let grouped = self.grouped;
+        let show_group_toggle = self.page == Page::Gallery;
         let controls = || {
             h_flex()
                 .flex_none()
                 .items_center()
-                .gap_px()
+                .gap_2()
+                .when(show_group_toggle, |el| {
+                    el.child(
+                        Button::new("group-toggle")
+                            .ghost()
+                            .small()
+                            .selected(grouped)
+                            .icon(if grouped {
+                                IconName::Folder
+                            } else {
+                                IconName::GalleryVerticalEnd
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.toggle_grouped(cx);
+                            })),
+                    )
+                })
                 .child(
-                    Button::new("grid-zoom-out")
-                        .ghost()
-                        .small()
-                        .icon(IconName::Minus)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.zoom_grid_out(cx);
-                        })),
+                    h_flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_px()
+                        .child(
+                            div()
+                                .w(px(150.))
+                                .child(Select::new(&self.sort_select).small()),
+                        )
+                        .child(
+                            Button::new("sort-direction")
+                                .ghost()
+                                .small()
+                                .icon(if sort_ascending {
+                                    IconName::SortAscending
+                                } else {
+                                    IconName::SortDescending
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.toggle_sort_direction(cx);
+                                })),
+                        ),
                 )
                 .child(
-                    Button::new("grid-zoom-in")
-                        .ghost()
-                        .small()
-                        .icon(IconName::Plus)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.zoom_grid_in(cx);
-                        })),
+                    h_flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_px()
+                        .child(
+                            Button::new("grid-zoom-out")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Minus)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.zoom_grid_out(cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("grid-zoom-in")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Plus)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.zoom_grid_in(cx);
+                                })),
+                        ),
                 )
         };
 
@@ -1348,18 +1504,19 @@ impl Render for Gallery {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_prev))
             .on_action(cx.listener(Self::on_next))
-            .on_action(cx.listener(Self::on_open))
+            .on_action(cx.listener(Self::on_open_lightbox))
+            .on_action(cx.listener(Self::on_toggle_grouped))
             .on_action(cx.listener(Self::on_close))
             .on_action(cx.listener(Self::on_zoom_in))
             .on_action(cx.listener(Self::on_zoom_out))
             .on_action(cx.listener(Self::on_zoom_reset))
-            .on_action(cx.listener(Self::on_bookmark))
+            .on_action(cx.listener(Self::on_toggle_bookmark))
             .on_action(cx.listener(Self::on_open_in_finder))
             .on_action(cx.listener(Self::on_reveal_in_gallery))
             .on_action(cx.listener(Self::on_focus_search))
             .on_action(cx.listener(Self::on_prev_page))
             .on_action(cx.listener(Self::on_next_page))
-            .on_action(cx.listener(Self::on_collapse_all))
+            .on_action(cx.listener(Self::on_toggle_collapse))
             .relative()
             .size_full()
             .bg(cx.theme().background)

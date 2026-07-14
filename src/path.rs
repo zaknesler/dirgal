@@ -81,11 +81,3 @@ pub fn group_segments(roots: &[PathBuf], parent: &Path) -> Vec<SharedString> {
 pub fn compare_paths(a: &Path, b: &Path) -> std::cmp::Ordering {
     natord::compare(&a.to_string_lossy(), &b.to_string_lossy())
 }
-
-/// Compare by parent directory first, then full path, so files sharing a
-/// directory sort contiguously (flat sort interleaves parent/child dirs)
-pub fn compare_paths_grouped(a: &Path, b: &Path) -> std::cmp::Ordering {
-    let parent_a = a.parent().unwrap_or(Path::new(""));
-    let parent_b = b.parent().unwrap_or(Path::new(""));
-    compare_paths(parent_a, parent_b).then_with(|| compare_paths(a, b))
-}

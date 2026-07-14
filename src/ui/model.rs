@@ -7,6 +7,42 @@ pub struct ImageHash(pub u64);
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct GroupHash(pub u64);
 
+/// Key by which images are ordered
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortKey {
+    #[default]
+    Name,
+    Modified,
+    Created,
+    Size,
+}
+
+impl SortKey {
+    /// All keys in display order paired with their menu labels
+    pub const ALL: [(SortKey, &'static str); 4] = [
+        (SortKey::Name, "Name"),
+        (SortKey::Modified, "Date modified"),
+        (SortKey::Created, "Date created"),
+        (SortKey::Size, "Size"),
+    ];
+}
+
+/// How images are ordered
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Sort {
+    pub key: SortKey,
+    pub ascending: bool,
+}
+
+impl Default for Sort {
+    fn default() -> Self {
+        Sort {
+            key: SortKey::default(),
+            ascending: true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Gallery,

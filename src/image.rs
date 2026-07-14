@@ -1,12 +1,16 @@
 use crate::{
     error::AppResult,
     hash::{hash_content, hash_path},
+    ui::model::{Sort, SortKey},
 };
-use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::{
+    cmp::Ordering,
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::SystemTime,
+};
 
 use gpui::Img;
 use humansize::{BINARY, FormatSizeOptions, format_size};
@@ -145,4 +149,37 @@ fn entry_stats(entry: &ignore::DirEntry) -> (u64, Option<SystemTime>, Option<Sys
 /// Format the given number of bytes as a human-readable string
 pub fn format_bytes(bytes: u64) -> String {
     format_size(bytes, FormatSizeOptions::from(BINARY).decimal_places(1))
+}
+
+/// Deduplicate by content hash keeping the last, then sort by the active sort key
+pub fn deduplicate_and_sort(images: Vec<ImageEntry>, sort: Sort) -> Vec<ImageEntry> {
+    let mut seen = HashSet::new();
+    let mut images: Vec<ImageEntry> = images
+        .into_iter()
+        .rev()
+        .filter(|e| seen.insert(e.hash))
+        .collect();
+
+    images.sort_by(|a, b| compare_key(a, b, sort));
+    images
+}
+
+/// Compare by parent directory alone so same directory images stay contiguous
+pub fn compare_parents(a: &ImageEntry, b: &ImageEntry) -> Ordering {
+    let parent_a = a.src_path.parent().unwrap_or(Path::new(""));
+    let parent_b = b.src_path.parent().unwrap_or(Path::new(""));
+    crate::path::compare_paths(parent_a, parent_b)
+}
+
+/// Compare two images by the active sort key falling back to path for a stable order
+pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
+    let ord = match sort.key {
+        SortKey::Name => crate::path::compare_paths(&a.src_path, &b.src_path),
+        SortKey::Modified => a.modified.cmp(&b.modified),
+        SortKey::Created => a.created.cmp(&b.created),
+        SortKey::Size => a.bytes.cmp(&b.bytes),
+    }
+    .then_with(|| crate::path::compare_paths(&a.src_path, &b.src_path));
+
+    if sort.ascending { ord } else { ord.reverse() }
 }
