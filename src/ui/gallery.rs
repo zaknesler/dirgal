@@ -66,6 +66,7 @@ pub struct Gallery {
     sort: Sort,
     sort_select: Entity<SelectState<Vec<String>>>,
     grouped: bool,
+    groupable: bool,
 
     // Data
     roots: Vec<PathBuf>,
@@ -154,7 +155,8 @@ impl Gallery {
             .map(|(i, e)| (ImageHash(e.hash), i))
             .collect();
 
-        let bookmarks = Self::bookmarks_from_config(&snapshot.config.bookmarks, &images);
+        let bookmarks = crate::image::resolve_bookmarks(&snapshot.config.bookmarks, &images);
+        let groupable = crate::image::compute_groupable(&images, &snapshot.roots);
 
         let mut this = Self {
             state,
@@ -166,6 +168,7 @@ impl Gallery {
             sort,
             sort_select,
             grouped: true,
+            groupable,
             roots: snapshot.roots,
             images,
             image_index,
@@ -207,7 +210,7 @@ impl Gallery {
 
         // Bookmarks follow image order so rebuild them from config
         self.bookmarks =
-            Self::bookmarks_from_config(&self.state.read(cx).config.bookmarks, &self.images);
+            crate::image::resolve_bookmarks(&self.state.read(cx).config.bookmarks, &self.images);
 
         self.refresh(cx);
     }
@@ -223,6 +226,10 @@ impl Gallery {
 
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
     fn toggle_grouped(&mut self, cx: &mut Context<Self>) {
+        if !self.groupable {
+            return;
+        }
+
         self.grouped = !self.grouped;
         self.refresh(cx);
     }
@@ -248,20 +255,9 @@ impl Gallery {
         self.set_sort(sort, cx);
     }
 
-    /// Resolve configured bookmark hashes against loaded images, dropping unknowns
-    fn bookmarks_from_config(hashes: &[u64], images: &[ImageEntry]) -> Vec<ImageHash> {
-        let known = hashes.iter().copied().collect::<HashSet<u64>>();
-
-        images
-            .iter()
-            .filter(|e| known.contains(&e.hash))
-            .map(|e| ImageHash(e.hash))
-            .collect()
-    }
-
     /// Whether the current view groups images by directory
     fn is_grouped(&self) -> bool {
-        self.grouped && self.page == Page::Gallery
+        self.groupable && self.grouped && self.page == Page::Gallery
     }
 
     /// Hashes for the current page in sort key order filtered by a case insensitive path search
@@ -601,7 +597,7 @@ impl Gallery {
         });
 
         self.bookmarks =
-            Self::bookmarks_from_config(&self.state.read(cx).config.bookmarks, &self.images);
+            crate::image::resolve_bookmarks(&self.state.read(cx).config.bookmarks, &self.images);
 
         cx.notify();
 
@@ -1143,7 +1139,7 @@ impl Gallery {
 
         let sort_ascending = self.sort.ascending;
         let grouped = self.grouped;
-        let show_group_toggle = self.page == Page::Gallery;
+        let show_group_toggle = self.page == Page::Gallery && self.groupable;
         let controls = || {
             h_flex()
                 .flex_none()

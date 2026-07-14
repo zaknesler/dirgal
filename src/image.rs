@@ -1,7 +1,7 @@
 use crate::{
     error::AppResult,
     hash::{hash_content, hash_path},
-    ui::model::{Sort, SortKey},
+    ui::model::{ImageHash, Sort, SortKey},
 };
 use std::{
     cmp::Ordering,
@@ -182,4 +182,29 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
     .then_with(|| crate::path::compare_paths(&a.src_path, &b.src_path));
 
     if sort.ascending { ord } else { ord.reverse() }
+}
+
+/// Resolve configured bookmark hashes against loaded images, dropping unknowns
+pub fn resolve_bookmarks(hashes: &[u64], images: &[ImageEntry]) -> Vec<ImageHash> {
+    let known = hashes.iter().copied().collect::<HashSet<u64>>();
+
+    images
+        .iter()
+        .filter(|e| known.contains(&e.hash))
+        .map(|e| ImageHash(e.hash))
+        .collect()
+}
+
+/// Whether grouping would produce anything beyond a single fake "(root)" group
+pub fn compute_groupable(images: &[ImageEntry], roots: &[PathBuf]) -> bool {
+    let mut parents: HashSet<&Path> = HashSet::new();
+    for entry in images {
+        parents.insert(entry.src_path.parent().unwrap_or(Path::new("")));
+    }
+
+    let single_root = roots.len() == 1;
+    let single_parent = parents.len() == 1;
+    let parent_is_root = parents.contains(roots[0].as_path());
+
+    !single_root || !single_parent || !parent_is_root
 }
