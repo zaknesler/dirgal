@@ -882,7 +882,7 @@ impl Gallery {
                 this.open_lightbox(&hash, cx)
             }))
             .context_menu(move |menu, _, _| {
-                Self::thumb_context_menu(menu, hash, is_bookmarked, page, &src_path)
+                Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
             })
             .map(|tile| match source {
                 Some(path) => tile.child(
@@ -911,8 +911,8 @@ impl Gallery {
             .into_any_element()
     }
 
-    /// Build the right-click menu for a thumbnail
-    fn thumb_context_menu(
+    /// Build the right-click menu for an image in the grid or lightbox
+    fn image_context_menu(
         menu: gpui_component::menu::PopupMenu,
         hash: ImageHash,
         is_bookmarked: bool,
@@ -1188,6 +1188,11 @@ impl Gallery {
             _ => None,
         };
 
+        let hash = *hash;
+        let is_bookmarked = self.get_bookmark_index(&hash).is_some();
+        let page = self.page;
+        let src_path = entry.src_path.to_path_buf();
+
         let prev_button = |cx: &mut Context<'_, Self>| {
             Button::new("prev-arrow")
                 .ghost()
@@ -1223,6 +1228,9 @@ impl Gallery {
                 .size_full()
                 .overflow_hidden()
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                .context_menu(move |menu, _, _| {
+                    Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
+                })
                 .child(
                     div()
                         .size_full()
