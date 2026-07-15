@@ -27,7 +27,8 @@ fn main() -> error::AppResult<()> {
         return Ok(());
     }
 
-    let images = scan::collect_images(&roots, &thumb_dir)?;
+    let files = scan::collect_files(&roots)?;
+    let images = scan::build_image_entries(files, &thumb_dir)?;
 
     if args.prefetch {
         scan::generate_thumbnails(&images)?;

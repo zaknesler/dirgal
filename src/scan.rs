@@ -8,11 +8,8 @@ use std::{collections::HashSet, path::PathBuf, sync::Mutex, time::Duration};
 
 const UPDATE_DURATION_MS: u64 = 80;
 
-/// Recursively scan the given roots for images, reporting progress as directories are visited and images discovered
-pub fn collect_images(
-    roots: &[PathBuf],
-    thumb_dir: &std::path::Path,
-) -> AppResult<Vec<ImageEntry>> {
+/// Recursively scan the given roots for image files, reporting progress as directories are visited and images discovered
+pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
     let bar = ProgressBar::new_spinner();
     bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
     bar.set_style(ProgressStyle::with_template(
@@ -69,10 +66,33 @@ pub fn collect_images(
 
     found.sort_by(|a, b| crate::path::compare_paths(&a.path, &b.path));
 
-    Ok(found
+    Ok(found)
+}
+
+/// Build image entries (hashing file content) from found files
+pub fn build_image_entries(
+    found: Vec<FoundFile>,
+    thumb_dir: &std::path::Path,
+) -> AppResult<Vec<ImageEntry>> {
+    let bar = ProgressBar::new(found.len() as u64);
+    bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
+    bar.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
+        )?
+        .progress_chars("##-"),
+    );
+    bar.set_message(format!("hashing {} image(s)", found.len()));
+
+    let images = found
         .into_par_iter()
+        .progress_with(bar.clone())
         .map(|f| ImageEntry::new(f, thumb_dir))
-        .collect())
+        .collect::<Vec<ImageEntry>>();
+
+    bar.finish_with_message(format!("hashed {} image(s)", images.len()));
+
+    Ok(images)
 }
 
 /// Generate thumbnails for the given images
@@ -83,17 +103,12 @@ pub fn generate_thumbnails(images: &[ImageEntry]) -> AppResult<()> {
         .filter(|i| !i.thumb_exists && i.bytes >= SMALL_FILE_BYTES)
         .collect::<Vec<_>>();
 
-    tracing::info!(
-        "{} thumbnail(s) already cached, {} to generate",
-        existing,
-        pending.len()
-    );
-
     if pending.is_empty() {
         return Ok(());
     }
 
-    let bar = ProgressBar::new(pending.len() as u64);
+    let bar = ProgressBar::new((existing + pending.len()) as u64);
+    bar.set_position(existing as u64);
     bar.enable_steady_tick(std::time::Duration::from_millis(UPDATE_DURATION_MS));
     bar.set_style(
         ProgressStyle::with_template(
@@ -119,7 +134,12 @@ pub fn generate_thumbnails(images: &[ImageEntry]) -> AppResult<()> {
             }
         });
 
-    bar.finish_with_message("done");
+    bar.finish_with_message(format!(
+        "{} thumbnail(s) total, {} already cached, {} generated",
+        existing + pending.len(),
+        existing,
+        pending.len()
+    ));
 
     let errors = errors.into_inner().unwrap();
     if !errors.is_empty() {
