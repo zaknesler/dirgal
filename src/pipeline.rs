@@ -161,6 +161,7 @@ pub fn purge_thumbnails(thumb_dir: &Path) {
     let mut files: Vec<PathBuf> = Vec::new();
     let mut dirs: Vec<PathBuf> = Vec::new();
 
+    // Collect all files and directories in the thumbnail directory so we have an accurate total
     for entry in image::build_root_walker(thumb_dir).flatten() {
         let Some(file_type) = entry.file_type() else {
             continue;
@@ -186,6 +187,7 @@ pub fn purge_thumbnails(thumb_dir: &Path) {
     );
     bar.set_message(format!("removing {} thumbnail(s)", files.len()));
 
+    // Delete all thumbnail files
     files
         .par_iter()
         .progress_with(bar.clone())
@@ -193,12 +195,8 @@ pub fn purge_thumbnails(thumb_dir: &Path) {
             std::fs::remove_file(file).ok();
         });
 
-    // remove deepest directories first so each one is empty when removed
-    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
-    for dir in &dirs {
-        std::fs::remove_dir(dir).ok();
-    }
-    std::fs::remove_dir(thumb_dir).ok();
+    // Delete the root thumbnail directory
+    std::fs::remove_dir_all(thumb_dir).ok();
 
     bar.finish_with_message(format!("removed {} thumbnail(s)", files.len()));
 }

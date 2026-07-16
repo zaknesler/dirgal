@@ -806,6 +806,26 @@ impl Gallery {
         self.input_focus_handle.focus(window, cx);
     }
 
+    /// Jump the grid scroll position to the very top
+    fn on_jump_to_top(&mut self, _: &actions::JumpToTop, _: &mut Window, cx: &mut Context<Self>) {
+        self.grid.scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(0.),
+        });
+        cx.notify();
+    }
+
+    /// Jump the grid scroll position to the very bottom
+    fn on_jump_to_bottom(
+        &mut self,
+        _: &actions::JumpToBottom,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.grid.scroll_to_end();
+        cx.notify();
+    }
+
     /// Cycle to the previous page, wrapping around
     fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
         let current_index: usize = self.page.into();
@@ -1510,6 +1530,8 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_open_in_finder))
             .on_action(cx.listener(Self::on_reveal_in_gallery))
             .on_action(cx.listener(Self::on_focus_search))
+            .on_action(cx.listener(Self::on_jump_to_top))
+            .on_action(cx.listener(Self::on_jump_to_bottom))
             .on_action(cx.listener(Self::on_prev_page))
             .on_action(cx.listener(Self::on_next_page))
             .on_action(cx.listener(Self::on_toggle_collapse))

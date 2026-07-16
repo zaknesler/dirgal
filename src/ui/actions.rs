@@ -17,6 +17,8 @@ actions!([
     PrevPage,
     NextPage,
     FocusSearch,
+    JumpToTop,
+    JumpToBottom,
 ]);
 
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
