@@ -8,7 +8,7 @@ mod error;
 mod hash;
 mod image;
 mod path;
-mod scan;
+mod pipeline;
 mod ui;
 mod util;
 
@@ -23,15 +23,15 @@ fn main() -> error::AppResult<()> {
     let thumb_dir = path::get_thumbnail_dir();
 
     if args.purge {
-        util::purge_thumbnails(&thumb_dir);
+        pipeline::purge_thumbnails(&thumb_dir);
         return Ok(());
     }
 
-    let files = scan::collect_files(&roots)?;
-    let images = scan::build_image_entries(files, &thumb_dir)?;
+    let files = pipeline::collect_files(&roots)?;
+    let images = pipeline::build_image_entries(files, &thumb_dir)?;
 
     if args.prefetch {
-        scan::generate_thumbnails(&images)?;
+        pipeline::generate_thumbnails(&images)?;
     }
 
     let state = ui::state::AppState {

@@ -4,7 +4,7 @@ use crate::{
 };
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::{collections::HashSet, path::PathBuf, sync::Mutex, time::Duration};
+use std::{collections::HashSet, path::Path, path::PathBuf, sync::Mutex, time::Duration};
 
 const UPDATE_DURATION_MS: u64 = 80;
 
@@ -78,7 +78,7 @@ pub fn build_image_entries(
     bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
     bar.set_style(
         ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}",
         )?
         .progress_chars("##-"),
     );
@@ -112,7 +112,7 @@ pub fn generate_thumbnails(images: &[ImageEntry]) -> AppResult<()> {
     bar.enable_steady_tick(std::time::Duration::from_millis(UPDATE_DURATION_MS));
     bar.set_style(
         ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})\n  {msg:.60}"
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len}\n  {msg:.60}",
         )?
         .progress_chars("##-"),
     );
@@ -150,4 +150,55 @@ pub fn generate_thumbnails(images: &[ImageEntry]) -> AppResult<()> {
     }
 
     Ok(())
+}
+
+/// Purge the thumbnail directory, removing files and subdirectories individually, reporting progress
+pub fn purge_thumbnails(thumb_dir: &Path) {
+    if !thumb_dir.exists() {
+        return;
+    }
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    let mut dirs: Vec<PathBuf> = Vec::new();
+
+    for entry in image::build_root_walker(thumb_dir).flatten() {
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
+
+        if file_type.is_dir() {
+            if entry.path() != thumb_dir {
+                dirs.push(entry.into_path());
+            }
+        } else if file_type.is_file() {
+            files.push(entry.into_path());
+        }
+    }
+
+    let bar = ProgressBar::new(files.len() as u64);
+    bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
+    bar.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}",
+        )
+        .expect("valid progress style")
+        .progress_chars("##-"),
+    );
+    bar.set_message(format!("removing {} thumbnail(s)", files.len()));
+
+    files
+        .par_iter()
+        .progress_with(bar.clone())
+        .for_each(|file| {
+            std::fs::remove_file(file).ok();
+        });
+
+    // remove deepest directories first so each one is empty when removed
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    for dir in &dirs {
+        std::fs::remove_dir(dir).ok();
+    }
+    std::fs::remove_dir(thumb_dir).ok();
+
+    bar.finish_with_message(format!("removed {} thumbnail(s)", files.len()));
 }
