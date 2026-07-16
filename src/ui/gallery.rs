@@ -43,6 +43,9 @@ const GRID_OUTER_MARGIN: f32 = 32.0;
 /// Number of navigable pages (gallery, bookmarks)
 const NUM_PAGES: usize = 2;
 
+/// Extra vertical space (pixels) above and below the viewport whose thumbnails are eagerly queued
+const GRID_OVERDRAW: f32 = 600.0;
+
 /// Max images retained in the grid's LRU image cache
 const GRID_CACHE_ITEMS: usize = 300;
 /// Max images retained in the lightbox's LRU image cache
@@ -86,7 +89,7 @@ pub struct Gallery {
 
     // Thumbnails
     thumbs: HashMap<ImageHash, ThumbState>,
-    queue: VecDeque<Job>,
+    queue: VecDeque<ImageHash>,
     num_running: usize,
     num_concurrency: usize,
 }
@@ -97,7 +100,7 @@ impl Gallery {
         cx.new(|cx| Self::new(window, cx))
     }
 
-    /// Build the gallery from app state and seed the deferred thumbnail queue
+    /// Build the gallery from app state; thumbnails are queued lazily as rows enter the viewport
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state::SharedAppState::from_app(cx).entity().clone();
 
@@ -110,15 +113,6 @@ impl Gallery {
 
         let sort = Sort::default();
         let images = crate::image::deduplicate_and_sort(snapshot.images, sort);
-
-        let queue: VecDeque<Job> = images
-            .iter()
-            .filter(|e| e.bytes >= SMALL_FILE_BYTES)
-            .map(|entry| Job {
-                image_hash: ImageHash(entry.hash),
-                priority: JobPriority::Deferred,
-            })
-            .collect();
 
         let num_concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -159,7 +153,7 @@ impl Gallery {
         let groupable = crate::image::compute_groupable(&images, &snapshot.roots);
 
         // Create a grid that is sized to show all of the items upon first load
-        let grid = ListState::new(0, ListAlignment::Top, px(600.)).measure_all();
+        let grid = ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all();
 
         let mut this = Self {
             state,
@@ -185,12 +179,12 @@ impl Gallery {
             num_columns: 1,
             column_override: None,
             thumbs: HashMap::new(),
-            queue,
+            queue: VecDeque::new(),
             num_running: 0,
             num_concurrency,
         };
 
-        this.process_jobs(cx);
+        this.refresh(cx);
         this
     }
 
@@ -321,58 +315,94 @@ impl Gallery {
         self.images.get(*hash)
     }
 
-    /// Displayable path for a thumbnail, enqueueing generation on first request
-    fn get_thumb_path(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> Option<Arc<Path>> {
-        let state = self
-            .thumbs
-            .get(hash)
-            .cloned()
-            .unwrap_or(ThumbState::Unknown);
-
-        let hash = *hash;
-
-        match state {
-            ThumbState::Ready(p) => Some(p),
-            ThumbState::Failed => self.get_image_entry(&hash).map(|e| e.src_path.clone()),
-            ThumbState::Queued | ThumbState::Generating => None,
-            ThumbState::Unknown => {
-                let entry = self.get_image_entry(&hash)?.clone();
-                if entry.bytes < SMALL_FILE_BYTES {
-                    self.thumbs
-                        .insert(hash, ThumbState::Ready(entry.src_path.clone()));
-                    Some(entry.src_path)
-                } else if entry.thumb_path.exists() {
-                    self.thumbs
-                        .insert(hash, ThumbState::Ready(entry.thumb_path.clone()));
-                    Some(entry.thumb_path)
-                } else {
-                    self.thumbs.insert(hash, ThumbState::Queued);
-                    self.queue.push_front(Job {
-                        image_hash: hash,
-                        priority: JobPriority::Urgent,
-                    });
-                    self.process_jobs(cx);
-                    None
-                }
-            }
+    /// Get displayable path for a thumbnail from already-known state, without triggering generation
+    fn peek_thumb_path(&self, hash: &ImageHash) -> Option<Arc<Path>> {
+        match self.thumbs.get(hash) {
+            Some(ThumbState::Ready(p)) => Some(p.clone()),
+            Some(ThumbState::Failed) => self.get_image_entry(hash).map(|e| e.src_path.clone()),
+            _ => None,
         }
     }
 
-    /// Pop queued jobs until one is still live for its priority, skipping stale entries
-    fn get_next_job(&mut self) -> Option<ImageHash> {
+    /// Resolve or queue a thumbnail for a single image, returning true if its state changed
+    fn enqueue_thumb(&mut self, hash: ImageHash) -> bool {
+        if !matches!(self.thumbs.get(&hash), None | Some(ThumbState::Unknown)) {
+            return false;
+        }
+
+        let Some(entry) = self.get_image_entry(&hash).cloned() else {
+            return false;
+        };
+
+        if entry.bytes < SMALL_FILE_BYTES {
+            self.thumbs
+                .insert(hash, ThumbState::Ready(entry.src_path.clone()));
+        } else if entry.thumb_path.exists() {
+            self.thumbs
+                .insert(hash, ThumbState::Ready(entry.thumb_path.clone()));
+        } else {
+            self.thumbs.insert(hash, ThumbState::Queued);
+            self.queue.push_back(hash);
+        }
+
+        true
+    }
+
+    /// Queue thumbnails for the rows in (or near) the viewport, dropping pending work that scrolled away
+    fn enqueue_visible(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.rows.is_empty() {
+            return;
+        }
+
+        let len = self.rows.len();
+        let row_height = self.tile_size + GRID_GAP;
+        let viewport = window.viewport_size().height.as_f32() + 2.0 * GRID_OVERDRAW;
+        let count = (viewport / row_height).ceil() as usize + 1;
+
+        // The scroll top can sit past the last row (e.g. after jumping to the bottom),
+        // so anchor the window to the end in that case rather than covering nothing
+        let anchor = self.grid.logical_scroll_top().item_ix.min(len);
+        let start = anchor.min(len.saturating_sub(count));
+        let end = (start + count).min(len);
+
+        let visible: HashSet<ImageHash> = self.rows[start..end]
+            .iter()
+            .filter_map(|row| match row {
+                Row::Tiles(range) => Some(self.filtered_images[range.clone()].to_vec()),
+                Row::Header(_) => None,
+            })
+            .flatten()
+            .collect();
+
+        // Cancel jobs for rows that have scrolled out of view before they start
+        let stale: Vec<ImageHash> = self
+            .queue
+            .iter()
+            .filter(|hash| !visible.contains(hash))
+            .copied()
+            .collect();
+        for hash in stale {
+            if matches!(self.thumbs.get(&hash), Some(ThumbState::Queued)) {
+                self.thumbs.insert(hash, ThumbState::Unknown);
+            }
+        }
+        self.queue.retain(|hash| visible.contains(hash));
+
+        let mut changed = false;
+        for hash in visible {
+            changed |= self.enqueue_thumb(hash);
+        }
+
+        if changed {
+            self.process_queue(cx);
+        }
+    }
+
+    /// Pop queued jobs until one is still pending, skipping stale entries
+    fn next_queued_thumb(&mut self) -> Option<ImageHash> {
         loop {
-            let Job {
-                image_hash: image,
-                priority,
-            } = self.queue.pop_front()?;
-            let state = self.thumbs.get(&image).unwrap_or(&ThumbState::Unknown);
-
-            let live = match priority {
-                JobPriority::Urgent => matches!(state, ThumbState::Queued),
-                JobPriority::Deferred => matches!(state, ThumbState::Unknown),
-            };
-
-            if live {
+            let image = self.queue.pop_front()?;
+            if matches!(self.thumbs.get(&image), Some(ThumbState::Queued)) {
                 return Some(image);
             }
         }
@@ -392,9 +422,9 @@ impl Gallery {
     }
 
     /// Spawn background thumbnail jobs up to the concurrency limit
-    fn process_jobs(&mut self, cx: &mut Context<Self>) {
+    fn process_queue(&mut self, cx: &mut Context<Self>) {
         while self.num_running < self.num_concurrency {
-            let Some(hash) = self.get_next_job() else {
+            let Some(hash) = self.next_queued_thumb() else {
                 return;
             };
 
@@ -412,15 +442,17 @@ impl Gallery {
                     .spawn(async move { image.generate_thumbnail() })
                     .await;
 
-                this.update(cx, |gallery, cx| gallery.on_job_finished(hash, result, cx))
-                    .ok();
+                this.update(cx, |gallery, cx| {
+                    gallery.on_thumb_generated(hash, result, cx)
+                })
+                .ok();
             })
             .detach();
         }
     }
 
     /// Record a job's outcome, then pull more work from the queue
-    fn on_job_finished(
+    fn on_thumb_generated(
         &mut self,
         hash: ImageHash,
         result: crate::error::AppResult<()>,
@@ -444,7 +476,7 @@ impl Gallery {
         };
 
         self.thumbs.insert(hash, state);
-        self.process_jobs(cx);
+        self.process_queue(cx);
         cx.notify();
     }
 
@@ -510,16 +542,15 @@ impl Gallery {
         );
     }
 
-    /// Drop urgent jobs back to unknown so grid work yields to the lightbox
-    fn deprioritize(&mut self) {
-        for job in &self.queue {
-            let is_queued = matches!(self.thumbs.get(&job.image_hash), Some(ThumbState::Queued));
-            if is_queued && job.priority == JobPriority::Urgent {
-                self.thumbs.insert(job.image_hash, ThumbState::Unknown);
+    /// Cancel pending grid thumbnail jobs so work yields to the lightbox
+    fn cancel_pending_thumbs(&mut self) {
+        for hash in &self.queue {
+            if matches!(self.thumbs.get(hash), Some(ThumbState::Queued)) {
+                self.thumbs.insert(*hash, ThumbState::Unknown);
             }
         }
 
-        self.queue.retain(|j| j.priority == JobPriority::Deferred);
+        self.queue.clear();
     }
 
     /// Apply a new grid layout and rebuild rows to match
@@ -532,7 +563,7 @@ impl Gallery {
     /// Show the lightbox for an image and pause urgent grid thumbnail work
     fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
         self.lightbox = Some(*hash);
-        self.deprioritize();
+        self.cancel_pending_thumbs();
         cx.notify();
     }
 
@@ -974,7 +1005,7 @@ impl Gallery {
 
     /// Render a clickable thumbnail tile with context menu and loading placeholder
     fn render_thumb(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
-        let source = self.get_thumb_path(hash, cx);
+        let source = self.peek_thumb_path(hash);
         let size = px(self.tile_size);
 
         let hash = *hash;
@@ -1517,6 +1548,9 @@ impl Render for Gallery {
         if (cols_changed || tile_size_changed) && !self.images.is_empty() {
             self.set_layout(columns, tile_size, cx);
         }
+
+        // Queue thumbnails for the visible rows; state set here is picked up when rows render below
+        self.enqueue_visible(window, cx);
 
         v_flex()
             .key_context(super::CONTEXT_GALLERY)

@@ -91,18 +91,6 @@ pub struct Group {
     pub image_hashes: Vec<ImageHash>,
 }
 
-#[derive(Clone, Copy)]
-pub struct Job {
-    pub image_hash: ImageHash,
-    pub priority: JobPriority,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum JobPriority {
-    Urgent,
-    Deferred,
-}
-
 #[derive(Clone)]
 pub enum ThumbState {
     Unknown,
