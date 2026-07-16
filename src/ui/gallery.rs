@@ -158,6 +158,9 @@ impl Gallery {
         let bookmarks = crate::image::resolve_bookmarks(&snapshot.config.bookmarks, &images);
         let groupable = crate::image::compute_groupable(&images, &snapshot.roots);
 
+        // Create a grid that is sized to show all of the items upon first load
+        let grid = ListState::new(0, ListAlignment::Top, px(600.)).measure_all();
+
         let mut this = Self {
             state,
             page: Page::Gallery,
@@ -177,7 +180,7 @@ impl Gallery {
             groups: Vec::new(),
             collapsed_groups: HashSet::new(),
             bookmarks,
-            grid: ListState::new(0, ListAlignment::Top, px(600.)),
+            grid,
             tile_size: TILE_MIN,
             num_columns: 1,
             column_override: None,
