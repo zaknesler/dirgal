@@ -4,13 +4,14 @@ use crate::ui::{
     state::{AppState, SharedAppState},
 };
 use gpui::{App, AppContext as _, KeyBinding, TitlebarOptions, WindowOptions};
+use gpui_component::{Theme, ThemeMode};
 
 pub fn create_window(state: AppState) {
     gpui_platform::application()
         .with_assets(gpui_component_assets::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
-            gpui_component::theme::Theme::sync_system_appearance(None, cx);
+            Theme::change(ThemeMode::Dark, None, cx);
 
             let shared = SharedAppState::new(state, cx);
             cx.set_global(shared);

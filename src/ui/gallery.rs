@@ -18,7 +18,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::ContextMenuExt,
-    scroll::Scrollbar,
+    scroll::{ScrollableElement, Scrollbar},
     select::{Select, SelectEvent, SelectState},
     skeleton::Skeleton,
     spinner::Spinner,
@@ -1403,8 +1403,8 @@ impl Gallery {
             Button::new("prev-arrow")
                 .ghost()
                 .large()
-                .px_8()
-                .py_16()
+                .px_4()
+                .py_8()
                 .icon(IconName::ChevronLeft)
                 .on_click(cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
@@ -1416,8 +1416,8 @@ impl Gallery {
             Button::new("next-arrow")
                 .ghost()
                 .large()
-                .px_8()
-                .py_16()
+                .px_4()
+                .py_8()
                 .icon(IconName::ChevronRight)
                 .on_click(cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
@@ -1434,6 +1434,7 @@ impl Gallery {
                 .size_full()
                 .overflow_hidden()
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                .overflow_scrollbar()
                 .context_menu(move |menu, _, _| {
                     Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
                 })
