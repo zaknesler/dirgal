@@ -74,6 +74,7 @@ fn register_actions(cx: &mut App) {
         ("space", actions::OpenLightbox),
         ("g", actions::ToggleGrouped),
         ("b", actions::Bookmark::Current),
+        ("k", actions::CopyPathToClipboard::Current),
         ("o", actions::OpenInFinder::Current),
         ("=", actions::ZoomIn),
         ("-", actions::ZoomOut),

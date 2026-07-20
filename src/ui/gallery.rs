@@ -7,9 +7,9 @@ use crate::{
     util,
 };
 use gpui::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, ListAlignment, ListOffset, ListState,
-    MouseDownEvent, ObjectFit, ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*,
-    px, rems,
+    AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Focusable, ListAlignment,
+    ListOffset, ListState, MouseDownEvent, ObjectFit, ScrollWheelEvent, SharedString, Window, div,
+    img, list, prelude::*, px, rems,
 };
 use gpui_component::{
     ActiveTheme, IconName, IndexPath, Selectable as _, Sizable as _,
@@ -640,6 +640,14 @@ impl Gallery {
         }
     }
 
+    /// Add or remove a bookmark and persist the change
+    fn copy_path_to_clipboard(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
+        if let Some(image) = self.get_image_entry(image_hash) {
+            let path = image.src_path.to_string_lossy().to_string();
+            cx.write_to_clipboard(ClipboardItem::new_string(path));
+        }
+    }
+
     /// Enlarge tiles by removing a column, down to a minimum of one
     fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
         let current = self.column_override.unwrap_or(self.num_columns);
@@ -734,6 +742,24 @@ impl Gallery {
     fn on_zoom_reset(&mut self, _: &actions::ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
         self.column_override = None;
         cx.notify();
+    }
+
+    fn on_copy_path_to_clipboard(
+        &mut self,
+        action: &actions::CopyPathToClipboard,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            actions::CopyPathToClipboard::Current => {
+                if let Some(hash) = self.lightbox {
+                    self.copy_path_to_clipboard(&hash, cx);
+                }
+            }
+            actions::CopyPathToClipboard::Thumb(hash) => {
+                self.copy_path_to_clipboard(hash, cx);
+            }
+        }
     }
 
     fn on_toggle_bookmark(
@@ -1087,6 +1113,11 @@ impl Gallery {
                 },
                 Box::new(actions::Bookmark::Thumb(hash)),
             )
+            .menu_with_icon(
+                "Copy full path",
+                IconName::Copy,
+                Box::new(actions::CopyPathToClipboard::Thumb(hash)),
+            )
             .separator()
             .when(page == Page::Bookmarks, |menu| {
                 menu.menu_with_icon(
@@ -1339,6 +1370,15 @@ impl Gallery {
                 .flex_none()
                 .text_color(cx.theme().muted_foreground)
                 .child(
+                    Button::new("copy-path")
+                        .ghost()
+                        .icon(IconName::Copy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.copy_path_to_clipboard(&hash, cx);
+                        })),
+                )
+                .child(
                     Button::new("bookmark")
                         .ghost()
                         .icon(if is_bookmarked {
@@ -1565,6 +1605,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_zoom_out))
             .on_action(cx.listener(Self::on_zoom_reset))
             .on_action(cx.listener(Self::on_toggle_bookmark))
+            .on_action(cx.listener(Self::on_copy_path_to_clipboard))
             .on_action(cx.listener(Self::on_open_in_finder))
             .on_action(cx.listener(Self::on_reveal_in_gallery))
             .on_action(cx.listener(Self::on_focus_search))
