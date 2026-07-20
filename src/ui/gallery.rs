@@ -2,9 +2,8 @@ use crate::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES, format_bytes},
     path::{group_segments, label_for},
-    ui::model::*,
-    ui::*,
-    util,
+    ui::{model::*, *},
+    util::{self, file_manager_label},
 };
 use gpui::{
     AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Focusable, ListAlignment,
@@ -1127,7 +1126,7 @@ impl Gallery {
                 )
             })
             .menu_with_icon(
-                "Open in finder",
+                format!("Open in {}", file_manager_label().to_lowercase()),
                 IconName::FolderOpen,
                 Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
             )
