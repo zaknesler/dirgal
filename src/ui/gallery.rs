@@ -6,12 +6,12 @@ use crate::{
     util::{self, file_manager_label},
 };
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Focusable, ListAlignment,
-    ListOffset, ListState, MouseDownEvent, ObjectFit, ScrollWheelEvent, SharedString, Window, div,
-    img, list, prelude::*, px, rems,
+    AnyElement, App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable,
+    ListAlignment, ListOffset, ListState, MouseDownEvent, ObjectFit, ScrollWheelEvent,
+    SharedString, Window, div, img, list, prelude::*, px, rems,
 };
 use gpui_component::{
-    ActiveTheme, IconName, IndexPath, Selectable as _, Sizable as _,
+    ActiveTheme, IconName, IndexPath, InteractiveElementExt, Selectable as _, Sizable as _,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _},
     h_flex,
@@ -85,6 +85,8 @@ pub struct Gallery {
     tile_size: f32,
     num_columns: usize,
     column_override: Option<usize>,
+    active_hash: Option<ImageHash>,
+    selected_hashes: Vec<ImageHash>,
 
     // Thumbnails
     thumbs: HashMap<ImageHash, ThumbState>,
@@ -177,6 +179,8 @@ impl Gallery {
             tile_size: TILE_MIN,
             num_columns: 1,
             column_override: None,
+            active_hash: None,
+            selected_hashes: Vec::new(),
             thumbs: HashMap::new(),
             queue: VecDeque::new(),
             num_running: 0,
@@ -559,6 +563,59 @@ impl Gallery {
         self.refresh(cx);
     }
 
+    /// Mark the given image as selected, deselecting any other items
+    fn select_single_hash(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
+        self.selected_hashes.clear();
+        self.selected_hashes.push(*hash);
+        self.active_hash = Some(*hash);
+        cx.notify();
+    }
+
+    /// Add the given image to the current selection
+    fn add_hash_to_selection(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
+        self.selected_hashes.push(*hash);
+        self.active_hash = Some(*hash);
+        cx.notify();
+    }
+
+    /// Remove the given image from the current selection
+    fn remove_hash_from_selection(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
+        if let Some(index) = self.selected_hashes.iter().position(|h| h == hash) {
+            self.selected_hashes.swap_remove(index);
+            self.active_hash = Some(*hash);
+            cx.notify();
+        }
+    }
+
+    /// Add all images between the current active hash and the given hash to the selection
+    fn add_hashes_until_selection(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
+        if let Some(index) = self.filtered_images.iter().position(|h| h == hash) {
+            if let Some(active_hash) = self.active_hash {
+                // Get the index of the current active hash
+                let active_index = self
+                    .filtered_images
+                    .iter()
+                    .position(|h| *h == active_hash)
+                    .unwrap_or(0);
+
+                // Add images between the current active hash and the given hash to the selection
+                if active_index > index {
+                    self.selected_hashes
+                        .extend(self.filtered_images[index..=active_index].iter().copied());
+                } else {
+                    self.selected_hashes
+                        .extend(self.filtered_images[active_index..=index].iter().copied());
+                }
+
+                self.active_hash = Some(*hash);
+
+                cx.notify();
+            } else {
+                self.select_single_hash(hash, cx);
+            }
+        }
+    }
+
     /// Show the lightbox for an image and pause urgent grid thumbnail work
     fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
         self.lightbox = Some(*hash);
@@ -639,12 +696,30 @@ impl Gallery {
         }
     }
 
-    /// Add or remove a bookmark and persist the change
+    /// Copy the path of the given image to the clipboard
     fn copy_path_to_clipboard(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
         if let Some(image) = self.get_image_entry(image_hash) {
             let path = image.src_path.to_string_lossy().to_string();
             cx.write_to_clipboard(ClipboardItem::new_string(path));
         }
+    }
+
+    /// Copy the paths of all selected images to the clipboard
+    fn copy_selected_paths_to_clipboard(&mut self, cx: &mut Context<Self>) {
+        if self.selected_hashes.is_empty() {
+            return;
+        }
+
+        let paths: Vec<String> = self
+            .selected_hashes
+            .iter()
+            .filter_map(|h| {
+                let image = self.get_image_entry(h)?;
+                Some(image.src_path.to_string_lossy().to_string())
+            })
+            .collect();
+
+        cx.write_to_clipboard(ClipboardItem::new_string(paths.join("\n")));
     }
 
     /// Enlarge tiles by removing a column, down to a minimum of one
@@ -681,6 +756,26 @@ impl Gallery {
             }
             _ => {}
         };
+    }
+
+    fn on_thumb_click_event(
+        &mut self,
+        hash: &ImageHash,
+        event: &ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.modifiers().secondary() && self.selected_hashes.contains(hash) {
+            self.remove_hash_from_selection(hash, cx);
+        } else if event.modifiers().secondary() {
+            self.add_hash_to_selection(hash, cx);
+        } else if event.modifiers().shift {
+            self.add_hashes_until_selection(hash, cx);
+        } else {
+            self.select_single_hash(hash, cx);
+        }
+
+        cx.notify();
     }
 
     fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
@@ -753,6 +848,8 @@ impl Gallery {
             actions::CopyPathToClipboard::Current => {
                 if let Some(hash) = self.lightbox {
                     self.copy_path_to_clipboard(&hash, cx);
+                } else if !self.selected_hashes.is_empty() {
+                    self.copy_selected_paths_to_clipboard(cx);
                 }
             }
             actions::CopyPathToClipboard::Thumb(hash) => {
@@ -1036,6 +1133,7 @@ impl Gallery {
         let hash = *hash;
 
         let is_bookmarked = self.bookmarks.contains(&hash);
+        let is_selected = self.selected_hashes.contains(&hash);
         let page = self.page;
         let src_path = self
             .get_image_entry(&hash)
@@ -1053,10 +1151,21 @@ impl Gallery {
             .overflow_hidden()
             .border_1()
             .relative()
-            .border_color(cx.theme().border)
-            .hover(|s| s.border_color(gpui::rgb(COLOR_ACCENT)))
+            .border_color(gpui::transparent_black())
+            .hover(|el| {
+                if is_selected {
+                    el
+                } else {
+                    el.border_color(cx.theme().border)
+                }
+            })
+            .when(is_selected, |el| el.border_color(gpui::rgb(COLOR_ACCENT)))
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| {
+            .on_click(cx.listener(move |this, event, window, cx| {
+                cx.stop_propagation();
+                Self::on_thumb_click_event(this, &hash, event, window, cx);
+            }))
+            .on_double_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
                 this.open_lightbox(&hash, cx)
             }))
