@@ -118,6 +118,9 @@ pub fn format_bytes(bytes: u64) -> String {
 /// Deduplicate by content hash keeping the last, then sort by the active sort key
 pub fn deduplicate_and_sort(images: Vec<ImageEntry>, sort: Sort) -> Vec<ImageEntry> {
     let mut seen = HashSet::new();
+
+    // Reverse the list to retain the last image, so that a duplicate image in
+    // a nested directory is kept rather than the one in the parent directory.
     let mut images: Vec<ImageEntry> = images
         .into_iter()
         .rev()
