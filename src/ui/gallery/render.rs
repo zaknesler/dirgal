@@ -10,7 +10,7 @@ use crate::{
 };
 use gpui::{
     AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, ScrollWheelEvent,
-    SharedString, Window, div, img, list, prelude::*, px, rems,
+    SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Disableable, IconName, InteractiveElementExt, Sizable as _,
@@ -356,11 +356,21 @@ impl Gallery {
                         )
                         .child(
                             Toggle::new(View::Grid)
-                                .icon(IconName::GalleryVerticalEnd)
+                                .icon(IconName::LayoutDashboard)
                                 .checked(self.view == View::Grid)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.view = View::Grid;
+                                    this.refresh(cx);
+                                })),
+                        )
+                        .child(
+                            Toggle::new(View::List)
+                                .icon(IconName::GalleryVerticalEnd)
+                                .checked(self.view == View::List)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.view = View::List;
                                     this.refresh(cx);
                                 })),
                         ),
@@ -660,7 +670,51 @@ impl Gallery {
             .child(self.render_info_bar(hash, cx))
     }
 
-    /// Render the virtualized image grid with its scrollbar
+    /// Render a virtualized image list with its scrollbar
+    fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .image_cache(super::cache::simple_lru_cache(
+                super::CONTEXT_GRID,
+                GRID_CACHE_ITEMS,
+            ))
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .child(
+                uniform_list(
+                    "list",
+                    self.filtered_images.len(),
+                    cx.processor(|this, range, _, cx| {
+                        let mut items = Vec::new();
+                        for index in range {
+                            let hash = this.filtered_images[index];
+                            let image = this.get_image_entry(&hash).expect("image should exist");
+
+                            items.push(
+                                div()
+                                    .id(image.hash.to_string())
+                                    .px_2()
+                                    .cursor_pointer()
+                                    .child(format!("Item {}", &image.src_path.to_string_lossy())),
+                            );
+                        }
+                        items
+                    }),
+                )
+                .size_full(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .child(Scrollbar::vertical(&self.grid)),
+            )
+    }
+
+    /// Render a virtualized image grid with its scrollbar
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .image_cache(super::cache::simple_lru_cache(
@@ -741,6 +795,8 @@ impl Render for Gallery {
             .map(|el| {
                 if self.filtered_images.is_empty() {
                     el.child(self.render_empty(cx))
+                } else if self.view == View::List {
+                    el.child(self.render_list(cx))
                 } else {
                     el.child(self.render_grid(cx))
                 }

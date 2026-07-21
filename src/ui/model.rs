@@ -134,14 +134,15 @@ pub enum ThumbState {
 pub enum View {
     Grouped,
     Grid,
-    // List,
+    List,
 }
 
 impl From<View> for ElementId {
     fn from(value: View) -> Self {
         Self::Name(match value {
-            View::Grid => "grid".into(),
             View::Grouped => "grouped".into(),
+            View::Grid => "grid".into(),
+            View::List => "list".into(),
         })
     }
 }
