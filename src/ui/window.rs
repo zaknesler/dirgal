@@ -13,18 +13,16 @@ pub fn create_window(state: AppState) {
             gpui_component::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
 
-            let roots = state.roots.clone();
-            let shared = SharedAppState::new(state, cx);
-            cx.set_global(shared);
-
             register_actions(cx);
 
-            let roots = roots
+            let roots_str = state
+                .roots
                 .iter()
                 .map(|r| r.to_string_lossy())
                 .collect::<Vec<_>>()
                 .join(" · ");
-            let title = format!("dirgal - {}", roots);
+            let title = format!("dirgal - {}", roots_str);
+
             let options = WindowOptions {
                 app_id: Some("dirgal".into()),
                 titlebar: Some(TitlebarOptions {
@@ -33,6 +31,9 @@ pub fn create_window(state: AppState) {
                 }),
                 ..Default::default()
             };
+
+            let shared = SharedAppState::new(state, cx);
+            cx.set_global(shared);
 
             cx.open_window(options, move |window, cx| {
                 let view = Gallery::view(window, cx);
