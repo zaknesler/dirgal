@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use gpui::ElementId;
+use gpui_component::IconName;
+
 #[derive(Clone, Copy, Hash, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
 pub struct ImageHash(pub u64);
 
@@ -47,6 +50,31 @@ impl Default for Sort {
 pub enum Page {
     Gallery,
     Bookmarks,
+    Duplicates,
+}
+
+impl Page {
+    pub const NUM_PAGES: usize = 3;
+
+    pub fn get_pages() -> &'static [Page] {
+        &[Page::Gallery, Page::Bookmarks, Page::Duplicates]
+    }
+
+    pub fn get_name(&self) -> &'static str {
+        match self {
+            Page::Bookmarks => "Bookmarks",
+            Page::Gallery => "Gallery",
+            Page::Duplicates => "Duplicates",
+        }
+    }
+
+    pub fn get_icon(&self) -> IconName {
+        match self {
+            Page::Bookmarks => IconName::Heart,
+            Page::Gallery => IconName::GalleryVerticalEnd,
+            Page::Duplicates => IconName::Copy,
+        }
+    }
 }
 
 impl From<Page> for usize {
@@ -54,6 +82,7 @@ impl From<Page> for usize {
         match page {
             Page::Gallery => 0,
             Page::Bookmarks => 1,
+            Page::Duplicates => 2,
         }
     }
 }
@@ -63,6 +92,7 @@ impl From<usize> for Page {
         match index {
             0 => Page::Gallery,
             1 => Page::Bookmarks,
+            2 => Page::Duplicates,
             _ => unreachable!(),
         }
     }
@@ -98,4 +128,20 @@ pub enum ThumbState {
     Generating,
     Ready(Arc<Path>),
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    Grouped,
+    Grid,
+    // List,
+}
+
+impl From<View> for ElementId {
+    fn from(value: View) -> Self {
+        Self::Name(match value {
+            View::Grid => "grid".into(),
+            View::Grouped => "grouped".into(),
+        })
+    }
 }

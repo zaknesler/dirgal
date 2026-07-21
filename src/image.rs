@@ -116,19 +116,26 @@ pub fn format_bytes(bytes: u64) -> String {
 }
 
 /// Deduplicate by content hash keeping the last, then sort by the active sort key
-pub fn deduplicate_and_sort(images: Vec<ImageEntry>, sort: Sort) -> Vec<ImageEntry> {
+pub fn deduplicate_and_sort(
+    images: Vec<ImageEntry>,
+    sort: Sort,
+) -> (Vec<ImageEntry>, Vec<ImageEntry>) {
     let mut seen = HashSet::new();
+    let mut unique = Vec::new();
+    let mut duplicates = Vec::new();
 
     // Reverse the list to retain the last image, so that a duplicate image in
     // a nested directory is kept rather than the one in the parent directory.
-    let mut images: Vec<ImageEntry> = images
-        .into_iter()
-        .rev()
-        .filter(|e| seen.insert(e.hash))
-        .collect();
+    for image in images.iter().rev() {
+        if seen.insert(image.hash) {
+            unique.push(image.to_owned());
+        } else {
+            duplicates.push(image.to_owned());
+        }
+    }
 
-    images.sort_by(|a, b| compare_key(a, b, sort));
-    images
+    unique.sort_by(|a, b| compare_key(a, b, sort));
+    (unique, duplicates)
 }
 
 /// Compare by parent directory alone so same directory images stay contiguous

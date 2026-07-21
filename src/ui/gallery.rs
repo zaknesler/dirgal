@@ -11,9 +11,9 @@ use gpui::{
     SharedString, Window, div, img, list, prelude::*, px, rems,
 };
 use gpui_component::{
-    ActiveTheme, IconName, IndexPath, InteractiveElementExt, Selectable as _, Sizable as _,
+    ActiveTheme, Disableable, IconName, IndexPath, InteractiveElementExt, Sizable as _,
     breadcrumb::Breadcrumb,
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariants as _, Toggle},
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::ContextMenuExt,
@@ -38,9 +38,6 @@ const TILE_MIN: f32 = 200.0;
 const GRID_GAP: f32 = 6.0;
 /// Total horizontal padding around the grid in pixels
 const GRID_OUTER_MARGIN: f32 = 32.0;
-
-/// Number of navigable pages (gallery, bookmarks)
-const NUM_PAGES: usize = 2;
 
 /// Extra vertical space (pixels) above and below the viewport whose thumbnails are eagerly queued
 const GRID_OVERDRAW: f32 = 600.0;
@@ -67,13 +64,14 @@ pub struct Gallery {
     lightbox: Option<ImageHash>,
     sort: Sort,
     sort_select: Entity<SelectState<Vec<String>>>,
-    grouped: bool,
-    groupable: bool,
+    view: View,
 
     // Data
     roots: Vec<PathBuf>,
     images: Vec<ImageEntry>,
     image_index: HashMap<ImageHash, usize>,
+    duplicates: Vec<ImageEntry>,
+    duplicate_index: HashMap<ImageHash, usize>,
     filtered_images: Vec<ImageHash>,
     rows: Vec<Row>,
     groups: Vec<Group>,
@@ -113,7 +111,7 @@ impl Gallery {
         let snapshot = state.read(cx).clone();
 
         let sort = Sort::default();
-        let images = crate::image::deduplicate_and_sort(snapshot.images, sort);
+        let (images, duplicates) = crate::image::deduplicate_and_sort(snapshot.images, sort);
 
         let num_concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -150,8 +148,13 @@ impl Gallery {
             .map(|(i, e)| (ImageHash(e.hash), i))
             .collect();
 
+        let duplicate_index = duplicates
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (ImageHash(e.hash), i))
+            .collect();
+
         let bookmarks = crate::image::resolve_bookmarks(&snapshot.config.bookmarks, &images);
-        let groupable = crate::image::compute_groupable(&images, &snapshot.roots);
 
         // Create a grid that is sized to show all of the items upon first load
         let grid = ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all();
@@ -165,17 +168,18 @@ impl Gallery {
             lightbox: None,
             sort,
             sort_select,
-            grouped: true,
-            groupable,
             roots: snapshot.roots,
             images,
             image_index,
+            duplicates,
+            duplicate_index,
             filtered_images: Vec::new(),
             rows: Vec::new(),
             groups: Vec::new(),
             collapsed_groups: HashSet::new(),
             bookmarks,
             grid,
+            view: View::Grouped,
             tile_size: TILE_MIN,
             num_columns: 1,
             column_override: None,
@@ -189,6 +193,19 @@ impl Gallery {
 
         this.refresh(cx);
         this
+    }
+
+    /// Returns whether the current image set supports grouping
+    fn is_groupable(&self, cx: &mut Context<Self>) -> bool {
+        crate::image::compute_groupable(&self.images, &self.state.read(cx).roots)
+    }
+
+    /// Reset the current view to grid/flat if the current image set does not support grouping
+    fn maybe_reset_view(&mut self, cx: &mut Context<Self>) {
+        if self.view == View::Grouped && !self.is_groupable(cx) {
+            self.view = View::Grid;
+            cx.notify();
+        }
     }
 
     /// Apply a new sort reorder images and rebuild the index
@@ -221,16 +238,22 @@ impl Gallery {
             ascending: !self.sort.ascending,
             ..self.sort
         };
+
         self.set_sort(sort, cx);
     }
 
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
     fn toggle_grouped(&mut self, cx: &mut Context<Self>) {
-        if !self.groupable {
+        if !self.is_groupable(cx) {
             return;
         }
 
-        self.grouped = !self.grouped;
+        self.view = if self.view == View::Grouped {
+            View::Grid
+        } else {
+            View::Grouped
+        };
+
         self.refresh(cx);
     }
 
@@ -255,17 +278,13 @@ impl Gallery {
         self.set_sort(sort, cx);
     }
 
-    /// Whether the current view groups images by directory
-    fn is_grouped(&self) -> bool {
-        self.groupable && self.grouped && self.page == Page::Gallery
-    }
-
     /// Hashes for the current page in sort key order filtered by a case insensitive path search
     fn get_visible_hashes(&self, query: &str) -> Vec<ImageHash> {
         // self.bookmarks is always kept in image sort order
         let candidates: Vec<ImageHash> = match self.page {
             Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
             Page::Bookmarks => self.bookmarks.clone(),
+            Page::Duplicates => self.duplicates.iter().map(|e| ImageHash(e.hash)).collect(),
         };
 
         if query.is_empty() {
@@ -314,6 +333,11 @@ impl Gallery {
 
     /// Look up an image entry by content hash
     fn get_image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
+        if self.page == Page::Duplicates {
+            let hash = self.duplicate_index.get(hash)?;
+            return self.duplicates.get(*hash);
+        }
+
         let hash = self.image_index.get(hash)?;
         self.images.get(*hash)
     }
@@ -486,12 +510,13 @@ impl Gallery {
     /// Rebuild filtered images, groups, and rows for the current page and query
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
-        let grouped = self.is_grouped();
         let mut filtered = self.get_visible_hashes(&query);
+
+        self.maybe_reset_view(cx);
 
         // Grouped view needs same directory images contiguous and a stable sort by parent
         // keeps their sort key order within each group intact
-        if grouped {
+        if self.view == View::Grouped {
             filtered.sort_by(
                 |a, b| match (self.get_image_entry(a), self.get_image_entry(b)) {
                     (Some(x), Some(y)) => crate::image::compare_parents(x, y),
@@ -504,7 +529,7 @@ impl Gallery {
         let old_rows = std::mem::take(&mut self.rows);
         let cols = self.num_columns.max(1);
 
-        if grouped {
+        if self.view == View::Grouped {
             self.groups = self.get_computed_groups();
 
             let mut offset = 0;
@@ -796,7 +821,7 @@ impl Gallery {
             return;
         }
 
-        let first = if self.is_grouped() {
+        let first = if self.view == View::Grouped {
             self.groups
                 .iter()
                 .find(|g| !self.collapsed_groups.contains(&g.hash))
@@ -985,7 +1010,7 @@ impl Gallery {
     /// Cycle to the previous page, wrapping around
     fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
         let current_index: usize = self.page.into();
-        let last_page = (current_index + NUM_PAGES - 1) % NUM_PAGES;
+        let last_page = (current_index + Page::NUM_PAGES - 1) % Page::NUM_PAGES;
 
         self.page = Page::from(last_page);
         self.refresh(cx);
@@ -994,7 +1019,7 @@ impl Gallery {
     /// Cycle to the next page, wrapping around
     fn on_next_page(&mut self, _: &actions::NextPage, _: &mut Window, cx: &mut Context<Self>) {
         let current_index: usize = self.page.into();
-        let next_page = (current_index + 1) % NUM_PAGES;
+        let next_page = (current_index + 1) % Page::NUM_PAGES;
 
         self.page = Page::from(next_page);
         self.refresh(cx);
@@ -1007,7 +1032,7 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.is_grouped() {
+        if self.view != View::Grouped {
             return;
         }
 
@@ -1147,7 +1172,6 @@ impl Gallery {
             .id(hash.0 as usize)
             .flex_none()
             .size(size)
-            .rounded_md()
             .overflow_hidden()
             .border_1()
             .relative()
@@ -1176,7 +1200,6 @@ impl Gallery {
                 Some(path) => tile.child(
                     img(path)
                         .size_full()
-                        .rounded_md()
                         .overflow_hidden()
                         .object_fit(ObjectFit::Cover),
                 ),
@@ -1268,36 +1291,26 @@ impl Gallery {
                 this.page = Page::from(*selected_index);
                 this.refresh(cx);
             }))
-            .child(
+            .children(Page::get_pages().iter().map(|page| {
                 Tab::new().px_2().child(
                     h_flex()
                         .gap_2()
                         .child(
                             div()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(IconName::GalleryVerticalEnd),
+                                .child(page.get_icon()),
                         )
-                        .child("Gallery"),
-                ),
-            )
-            .child(
-                Tab::new().px_2().child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(IconName::Heart),
-                        )
-                        .child("Bookmarks"),
-                ),
-            )
+                        .child(page.get_name()),
+                )
+            }))
     }
 
     /// Render the toolbar with search input, image counts, and zoom controls
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let is_groupable = self.is_groupable(cx);
+
         let count_label = match self.page {
-            Page::Gallery if self.grouped => format!(
+            Page::Gallery if self.view == View::Grouped => format!(
                 "{} images in {} folders",
                 util::format_num(self.filtered_images.len()),
                 util::format_num(self.groups.len())
@@ -1305,6 +1318,10 @@ impl Gallery {
             Page::Gallery => format!("{} images", util::format_num(self.filtered_images.len())),
             Page::Bookmarks => format!(
                 "{} bookmarked images",
+                util::format_num(self.filtered_images.len())
+            ),
+            Page::Duplicates => format!(
+                "{} duplicate images",
                 util::format_num(self.filtered_images.len())
             ),
         };
@@ -1331,30 +1348,38 @@ impl Gallery {
         };
 
         let sort_ascending = self.sort.ascending;
-        let grouped = self.grouped;
-        let show_group_toggle = self.page == Page::Gallery && self.groupable;
+
         let controls = || {
             h_flex()
                 .flex_none()
                 .items_center()
                 .gap_2()
-                .when(show_group_toggle, |el| {
-                    el.child(
-                        Button::new("group-toggle")
-                            .ghost()
-                            .small()
-                            .selected(grouped)
-                            .icon(if grouped {
-                                IconName::Folder
-                            } else {
-                                IconName::GalleryVerticalEnd
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.toggle_grouped(cx);
-                            })),
-                    )
-                })
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            Toggle::new(View::Grouped)
+                                .icon(IconName::Folder)
+                                .checked(self.view == View::Grouped)
+                                .disabled(!is_groupable)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.view = View::Grouped;
+                                    this.refresh(cx);
+                                })),
+                        )
+                        .child(
+                            Toggle::new(View::Grid)
+                                .icon(IconName::GalleryVerticalEnd)
+                                .checked(self.view == View::Grid)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.view = View::Grid;
+                                    this.refresh(cx);
+                                })),
+                        ),
+                )
                 .child(
                     h_flex()
                         .flex_none()
