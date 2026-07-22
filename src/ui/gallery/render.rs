@@ -9,8 +9,8 @@ use crate::{
     util::{self, file_manager_label},
 };
 use gpui::{
-    AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, ScrollWheelEvent,
-    SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
+    AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, Pixels,
+    ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Disableable, IconName, InteractiveElementExt, Sizable as _,
@@ -130,27 +130,38 @@ impl Gallery {
             .children(
                 hashes
                     .into_iter()
-                    .map(|ref hash| self.render_thumb(hash, cx)),
+                    .map(|ref hash| self.render_tile(hash, cx)),
             )
             .into_any_element()
     }
 
-    /// Render a clickable thumbnail tile with context menu and loading placeholder
-    fn render_thumb(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
+    fn render_thumb(&self, hash: &ImageHash) -> AnyElement {
         let source = self.peek_thumb_path(hash);
+
+        match source {
+            Some(path) => img(path)
+                .size_full()
+                .overflow_hidden()
+                .object_fit(ObjectFit::Cover)
+                .into_any_element(),
+            None => Self::render_thumb_placeholder().into_any_element(),
+        }
+    }
+
+    /// Render a clickable tile with context menu and loading placeholder
+    fn render_tile(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
         let size = px(self.tile_size);
-
-        let hash = *hash;
-
-        let is_bookmarked = self.bookmarks.contains(&hash);
-        let is_selected = self.selected_hashes.contains(&hash);
+        let is_bookmarked = self.bookmarks.contains(hash);
+        let is_selected = self.selected_hashes.contains(hash);
         let page = self.page;
+
         let src_path = self
-            .get_image_entry(&hash)
+            .get_image_entry(hash)
             .map(|e| e.src_path.to_path_buf())
             .expect("image should exist");
-
         let path_str = src_path.to_string_lossy().to_string();
+
+        let hash = *hash;
 
         div()
             .key_context(super::CONTEXT_GALLERY)
@@ -181,15 +192,7 @@ impl Gallery {
             .context_menu(move |menu, _, _| {
                 Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
             })
-            .map(|tile| match source {
-                Some(path) => tile.child(
-                    img(path)
-                        .size_full()
-                        .overflow_hidden()
-                        .object_fit(ObjectFit::Cover),
-                ),
-                None => tile.relative().child(Self::render_thumb_placeholder()),
-            })
+            .map(|tile| tile.relative().child(self.render_thumb(&hash)))
             .when(DEBUG, |el| {
                 el.child(
                     div()
@@ -672,6 +675,8 @@ impl Gallery {
 
     /// Render a virtualized image list with its scrollbar
     fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let total_count = self.filtered_images.len();
+
         div()
             .image_cache(super::cache::simple_lru_cache(
                 super::CONTEXT_GRID,
@@ -683,19 +688,31 @@ impl Gallery {
             .child(
                 uniform_list(
                     "list",
-                    self.filtered_images.len(),
-                    cx.processor(|this, range, _, _| {
+                    total_count,
+                    cx.processor(move |this, range, _, cx| {
                         let mut items = Vec::new();
                         for index in range {
                             let hash = this.filtered_images[index];
                             let image = this.get_image_entry(&hash).expect("image should exist");
+                            let thumb = this.render_thumb(&hash);
 
                             items.push(
                                 div()
                                     .id(image.hash.to_string())
-                                    .px_2()
-                                    .cursor_pointer()
-                                    .child(format!("Item {}", &image.src_path.to_string_lossy())),
+                                    .px(px(GRID_OUTER_MARGIN / 2.))
+                                    .pb(px(GRID_GAP))
+                                    .child(
+                                        h_flex()
+                                            .px_4()
+                                            .py_2()
+                                            .border_1()
+                                            .rounded_md()
+                                            .overflow_hidden()
+                                            .border_color(cx.theme().border)
+                                            .cursor_pointer()
+                                            .child(div().size(px(100.)).child(thumb))
+                                            .child(image.src_path.to_string_lossy().to_string()),
+                                    ),
                             );
                         }
                         items
