@@ -73,6 +73,7 @@ impl ImageEntry {
         let image = image::ImageReader::open(src)?
             .with_guessed_format()?
             .decode()?;
+        let image = apply_exif_orientation(image, orientation(src));
 
         let image_already_small = image.width() <= THUMB_PX && image.height() <= THUMB_PX;
         let thumb = if image_already_small {
@@ -85,6 +86,38 @@ impl ImageEntry {
         thumb.save_with_format(&tmp, image::ImageFormat::Png)?;
         fs::rename(&tmp, dst)?;
         Ok(())
+    }
+}
+
+/// Read the EXIF orientation tag from the given file
+fn orientation(path: &Path) -> u32 {
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return 1,
+    };
+    let mut buf_reader = std::io::BufReader::new(file);
+
+    let exif = match exif::Reader::new().read_from_container(&mut buf_reader) {
+        Ok(e) => e,
+        Err(_) => return 1,
+    };
+
+    exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+        .and_then(|f| f.value.get_uint(0))
+        .unwrap_or(1)
+}
+
+/// Rotate/flip an image so its pixels match the EXIF orientation tag's intended display
+fn apply_exif_orientation(image: image::DynamicImage, orientation: u32) -> image::DynamicImage {
+    match orientation {
+        2 => image.fliph(),
+        3 => image.rotate180(),
+        4 => image.flipv(),
+        5 => image.rotate90().fliph(),
+        6 => image.rotate90(),
+        7 => image.rotate270().fliph(),
+        8 => image.rotate270(),
+        _ => image,
     }
 }
 

@@ -16,7 +16,6 @@ pub const GRID_CACHE_ITEMS: usize = 300;
 /// Max images retained in the lightbox's LRU image cache
 pub const LIGHTBOX_CACHE_ITEMS: usize = 10;
 
-/// Hover highlight color for tile borders
 pub const COLOR_ACCENT: u32 = 0xca3500;
-/// Semi-transparent backdrop color behind the lightbox
+pub const COLOR_ACCENT_HOVER: u32 = 0xfc713f;
 pub const COLOR_BACKDROP: u32 = 0x0a0a0af0;

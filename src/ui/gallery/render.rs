@@ -174,9 +174,9 @@ impl Gallery {
             .border_color(gpui::transparent_black())
             .hover(|el| {
                 if is_selected {
-                    el
+                    el.border_color(gpui::rgb(COLOR_ACCENT_HOVER))
                 } else {
-                    el.border_color(cx.theme().border)
+                    el.border_color(gpui::white())
                 }
             })
             .when(is_selected, |el| el.border_color(gpui::rgb(COLOR_ACCENT)))
