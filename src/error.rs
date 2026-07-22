@@ -28,4 +28,7 @@ pub enum AppError {
 
     #[error(transparent)]
     ProgressTemplateError(#[from] indicatif::style::TemplateError),
+
+    #[error(transparent)]
+    CacheEncodeError(#[from] postcard::Error),
 }

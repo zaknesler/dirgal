@@ -1,10 +1,18 @@
 use crate::{
+    cache::{HashCache, HashCacheEntry},
     error::AppResult,
+    hash::{hash_content, hash_path},
     image::{self, FoundFile, ImageEntry, SMALL_FILE_BYTES},
 };
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::{collections::HashSet, path::Path, path::PathBuf, sync::Mutex, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    path::PathBuf,
+    sync::Mutex,
+    time::Duration,
+};
 
 const UPDATE_DURATION_MS: u64 = 80;
 
@@ -69,10 +77,12 @@ pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
     Ok(found)
 }
 
-/// Build image entries (hashing file content) from found files
+/// Build image entries from found files, reusing cached content hashes where the file's
+/// size and modified time still match, and persisting any newly-computed hashes back to disk
 pub fn build_image_entries(
     found: Vec<FoundFile>,
     thumb_dir: &std::path::Path,
+    roots: &[PathBuf],
 ) -> AppResult<Vec<ImageEntry>> {
     let bar = ProgressBar::new(found.len() as u64);
     bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
@@ -84,15 +94,55 @@ pub fn build_image_entries(
     );
     bar.set_message(format!("hashing {} image(s)", found.len()));
 
+    let cache = HashCache::load(roots);
+
     let images = found
         .into_par_iter()
         .progress_with(bar.clone())
-        .map(|f| ImageEntry::new(f, thumb_dir))
+        .map(|f| {
+            let hash = resolve_hash(&f, &cache);
+            ImageEntry::new(f, thumb_dir, hash)
+        })
         .collect::<Vec<ImageEntry>>();
 
     bar.finish_with_message(format!("hashed {} image(s)", images.len()));
 
+    let entries = images
+        .iter()
+        .filter_map(|i| {
+            let modified = i.modified?;
+            let mtime = modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_secs();
+            Some((
+                i.src_path.to_path_buf(),
+                HashCacheEntry {
+                    size: i.bytes,
+                    mtime,
+                    hash: i.hash,
+                },
+            ))
+        })
+        .collect::<HashMap<PathBuf, HashCacheEntry>>();
+
+    if let Err(err) = HashCache::save(roots, &entries) {
+        tracing::warn!(error = %err, "failed to write cache file(s)");
+    }
+
     Ok(images)
+}
+
+/// Resolve the content hash for a found file, reusing the cached value if possible, otherwise hashing from scratch
+fn resolve_hash(file: &FoundFile, cache: &HashCache) -> u64 {
+    if let Some(hash) = cache.get(&file.path, file.bytes, file.modified) {
+        return hash;
+    }
+
+    hash_content(&file.path).unwrap_or_else(|e| {
+        tracing::warn!(path = %file.path.display(), error = %e, "hash_content failed, falling back to hash_path");
+        hash_path(&file.path)
+    })
 }
 
 /// Generate thumbnails for the given images

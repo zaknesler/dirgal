@@ -2,6 +2,7 @@
 
 use clap::Parser as _;
 
+mod cache;
 mod cli;
 mod config;
 mod error;
@@ -28,7 +29,7 @@ fn main() -> error::AppResult<()> {
     }
 
     let files = pipeline::collect_files(&roots)?;
-    let images = pipeline::build_image_entries(files, &thumb_dir)?;
+    let images = pipeline::build_image_entries(files, &thumb_dir, &roots)?;
 
     if args.prefetch {
         pipeline::generate_thumbnails(&images)?;

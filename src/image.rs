@@ -1,6 +1,5 @@
 use crate::{
     error::AppResult,
-    hash::{hash_content, hash_path},
     ui::model::{ImageHash, Sort, SortKey},
 };
 use std::{
@@ -42,11 +41,7 @@ pub struct FoundFile {
 }
 
 impl ImageEntry {
-    pub fn new(file: FoundFile, thumb_dir: &Path) -> Self {
-        let hash = hash_content(&file.path).unwrap_or_else(|e| {
-            tracing::warn!(path = %file.path.display(), error = %e, "hash_content failed, falling back to hash_path");
-            hash_path(&file.path)
-        });
+    pub fn new(file: FoundFile, thumb_dir: &Path, hash: u64) -> Self {
         let thumb = thumb_dir.join(format!("{:016x}.png", hash));
         let thumb_exists = thumb.exists();
 
