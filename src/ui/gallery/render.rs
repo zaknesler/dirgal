@@ -9,8 +9,8 @@ use crate::{
     util::{self, file_manager_label},
 };
 use gpui::{
-    AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, Pixels,
-    ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
+    AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, ScrollWheelEvent,
+    SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Disableable, IconName, InteractiveElementExt, Sizable as _,
