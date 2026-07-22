@@ -276,8 +276,7 @@ impl Gallery {
             .px_2()
             .rounded_none()
             .on_click(cx.listener(|this, selected_index, _, cx| {
-                this.page = Page::from(*selected_index);
-                this.refresh(cx);
+                this.set_page(Page::from(*selected_index), cx);
             }))
             .children(Page::get_pages().iter().map(|page| {
                 Tab::new().px_2().child(

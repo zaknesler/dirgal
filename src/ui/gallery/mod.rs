@@ -168,6 +168,13 @@ impl Gallery {
         crate::image::compute_groupable(&self.images, &self.state.read(cx).roots)
     }
 
+    /// Set the current page to the given page, updating the view and refreshing
+    fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.page = page;
+        self.view = self.page.default_view();
+        self.refresh(cx);
+    }
+
     /// Reset the current view to grid/flat if the current image set does not support grouping
     fn maybe_reset_view(&mut self, cx: &mut Context<Self>) {
         if self.view == View::Grouped && !self.is_groupable(cx) {
@@ -980,8 +987,7 @@ impl Gallery {
         let current_index: usize = self.page.into();
         let last_page = (current_index + Page::NUM_PAGES - 1) % Page::NUM_PAGES;
 
-        self.page = Page::from(last_page);
-        self.refresh(cx);
+        self.set_page(Page::from(last_page), cx);
     }
 
     /// Cycle to the next page, wrapping around
@@ -989,8 +995,7 @@ impl Gallery {
         let current_index: usize = self.page.into();
         let next_page = (current_index + 1) % Page::NUM_PAGES;
 
-        self.page = Page::from(next_page);
-        self.refresh(cx);
+        self.set_page(Page::from(next_page), cx);
     }
 
     /// Collapse every group, or expand all if everything is already collapsed

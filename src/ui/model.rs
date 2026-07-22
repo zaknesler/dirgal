@@ -75,6 +75,15 @@ impl Page {
             Page::Duplicates => IconName::Copy,
         }
     }
+
+    /// Get the default view for the page
+    pub fn default_view(&self) -> View {
+        match self {
+            Self::Gallery => View::Grouped,
+            Self::Bookmarks => View::Grid,
+            Self::Duplicates => View::List,
+        }
+    }
 }
 
 impl From<Page> for usize {
