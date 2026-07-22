@@ -158,8 +158,8 @@ impl Gallery {
             .flex_none()
             .size(size)
             .overflow_hidden()
-            .border_1()
             .relative()
+            .border_3()
             .border_color(gpui::transparent_black())
             .hover(|el| {
                 if is_selected {
@@ -684,7 +684,7 @@ impl Gallery {
                 uniform_list(
                     "list",
                     self.filtered_images.len(),
-                    cx.processor(|this, range, _, cx| {
+                    cx.processor(|this, range, _, _| {
                         let mut items = Vec::new();
                         for index in range {
                             let hash = this.filtered_images[index];
