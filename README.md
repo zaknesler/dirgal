@@ -6,6 +6,8 @@ Thanks to Zed's wonderful [GPUI](https://gpui.rs) library, _dirgal_ is nible, re
 
 This app is a work-in-progress side project and is mainly for casual (read: not professional) use. It is intended for quickly browsing through images in a directory, and is not some replacement for an image cataloging tool like Capture One or Lightroom.
 
+![dirgal screenshot](.github/assets/screenshot.png)
+
 ### Usage
 
 ```sh
