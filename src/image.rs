@@ -1,5 +1,6 @@
 use crate::{
     error::AppResult,
+    path::compare_paths,
     ui::model::{ImageHash, Sort, SortKey},
 };
 use std::{
@@ -170,20 +171,51 @@ pub fn deduplicate_and_sort(
 pub fn compare_parents(a: &ImageEntry, b: &ImageEntry) -> Ordering {
     let parent_a = a.src_path.parent().unwrap_or(Path::new(""));
     let parent_b = b.src_path.parent().unwrap_or(Path::new(""));
-    crate::path::compare_paths(parent_a, parent_b)
+    compare_paths(parent_a, parent_b)
 }
 
 /// Compare two images by the active sort key falling back to path for a stable order
 pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
-    let ord = match sort.key {
-        SortKey::Name => crate::path::compare_paths(&a.src_path, &b.src_path),
-        SortKey::Modified => a.modified.cmp(&b.modified),
-        SortKey::Created => a.created.cmp(&b.created),
-        SortKey::Size => a.bytes.cmp(&b.bytes),
+    if sort.key == SortKey::DateInPath {
+        return compare_date_in_path(a, b, sort.ascending);
     }
-    .then_with(|| crate::path::compare_paths(&a.src_path, &b.src_path));
+
+    let ord = match sort.key {
+        SortKey::Name => compare_paths(&a.src_path, &b.src_path),
+        SortKey::Modified => a
+            .modified
+            .cmp(&b.modified)
+            .then_with(|| compare_paths(&a.src_path, &b.src_path)),
+        SortKey::Created => a
+            .created
+            .cmp(&b.created)
+            .then_with(|| compare_paths(&a.src_path, &b.src_path)),
+        SortKey::Size => a
+            .bytes
+            .cmp(&b.bytes)
+            .then_with(|| compare_paths(&a.src_path, &b.src_path)),
+        SortKey::DateInPath => unreachable!("handled above"),
+    };
 
     if sort.ascending { ord } else { ord.reverse() }
+}
+
+/// Compare by embedded path date, keeping dateless images at the end regardless of direction
+fn compare_date_in_path(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Ordering {
+    match (
+        crate::path::extract_date_from_path(&a.src_path),
+        crate::path::extract_date_from_path(&b.src_path),
+    ) {
+        (None, None) => compare_paths(&a.src_path, &b.src_path),
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(da), Some(db)) => {
+            let ord = da
+                .cmp(&db)
+                .then_with(|| compare_paths(&a.src_path, &b.src_path));
+            if ascending { ord } else { ord.reverse() }
+        }
+    }
 }
 
 /// Resolve configured bookmark hashes against loaded images, dropping unknowns

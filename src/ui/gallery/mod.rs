@@ -95,14 +95,13 @@ impl Gallery {
         cx.subscribe_in(&input, window, Self::on_input_event)
             .detach();
 
-        let sort_index = SortKey::ALL.iter().position(|(k, _)| *k == sort.key);
         let sort_select = cx.new(|cx| {
             SelectState::new(
                 SortKey::ALL
                     .iter()
                     .map(|(_, l)| l.to_string())
                     .collect::<Vec<_>>(),
-                sort_index.map(IndexPath::new),
+                Some(IndexPath::new(sort.key.index())),
                 window,
                 cx,
             )
@@ -984,18 +983,20 @@ impl Gallery {
 
     /// Cycle to the previous page, wrapping around
     fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
-        let current_index: usize = self.page.into();
-        let last_page = (current_index + Page::NUM_PAGES - 1) % Page::NUM_PAGES;
+        let current_index = self.page.index();
+        let total_pages = Page::ALL.len();
+        let last_index = (current_index + total_pages - 1) % total_pages;
 
-        self.set_page(Page::from(last_page), cx);
+        self.set_page(Page::ALL[last_index].0, cx);
     }
 
     /// Cycle to the next page, wrapping around
     fn on_next_page(&mut self, _: &actions::NextPage, _: &mut Window, cx: &mut Context<Self>) {
-        let current_index: usize = self.page.into();
-        let next_page = (current_index + 1) % Page::NUM_PAGES;
+        let current_index = self.page.index();
+        let total_pages = Page::ALL.len();
+        let next_index = (current_index + 1) % total_pages;
 
-        self.set_page(Page::from(next_page), cx);
+        self.set_page(Page::ALL[next_index].0, cx);
     }
 
     /// Collapse every group, or expand all if everything is already collapsed

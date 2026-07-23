@@ -1542,6 +1542,7 @@ dependencies = [
  "num-format",
  "postcard",
  "rayon",
+ "regex",
  "rust-embed",
  "schemars",
  "seahash",

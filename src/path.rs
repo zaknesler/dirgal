@@ -81,3 +81,23 @@ pub fn group_segments(roots: &[PathBuf], parent: &Path) -> Vec<SharedString> {
 pub fn compare_paths(a: &Path, b: &Path) -> std::cmp::Ordering {
     natord::compare(&a.to_string_lossy(), &b.to_string_lossy())
 }
+
+/// Extract the first valid `YYYY-MM-DD` date in a path
+pub fn extract_date_from_path(path: &Path) -> Option<(u32, u32, u32)> {
+    static DATE_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap());
+
+    let text = path.to_string_lossy();
+
+    // Find first valid date of all likely candidates
+    DATE_RE.captures_iter(&text).find_map(|caps| {
+        let year: u32 = caps[1].parse().ok()?;
+        let month: u32 = caps[2].parse().ok()?;
+        let day: u32 = caps[3].parse().ok()?;
+
+        let valid =
+            (1970..=2069).contains(&year) && (1..=12).contains(&month) && (1..=31).contains(&day);
+
+        valid.then_some((year, month, day))
+    })
+}

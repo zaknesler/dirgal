@@ -270,24 +270,27 @@ impl Gallery {
 
     /// Render the page navigation tabs
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let page_index = self.page.index();
+
         TabBar::new("navigation")
             .w_full()
-            .selected_index(self.page.into())
+            .selected_index(page_index)
             .px_2()
             .rounded_none()
             .on_click(cx.listener(|this, selected_index, _, cx| {
-                this.set_page(Page::from(*selected_index), cx);
+                let (page, _, _) = Page::ALL[*selected_index];
+                this.set_page(page, cx);
             }))
-            .children(Page::get_pages().iter().map(|page| {
+            .children(Page::ALL.iter().map(|(_, name, icon)| {
                 Tab::new().px_2().child(
                     h_flex()
                         .gap_2()
                         .child(
                             div()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(page.get_icon()),
+                                .child(icon.clone()),
                         )
-                        .child(page.get_name()),
+                        .child(*name),
                 )
             }))
     }

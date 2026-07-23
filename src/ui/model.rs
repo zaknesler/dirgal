@@ -18,16 +18,24 @@ pub enum SortKey {
     Modified,
     Created,
     Size,
+    DateInPath,
 }
 
 impl SortKey {
-    /// All keys in display order paired with their menu labels
-    pub const ALL: [(SortKey, &'static str); 4] = [
+    pub const ALL: [(SortKey, &'static str); 5] = [
         (SortKey::Name, "Name"),
-        (SortKey::Modified, "Date modified"),
-        (SortKey::Created, "Date created"),
         (SortKey::Size, "Size"),
+        (SortKey::Created, "Date created"),
+        (SortKey::Modified, "Date modified"),
+        (SortKey::DateInPath, "Date in path"),
     ];
+
+    pub fn index(&self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|(k, _)| k == self)
+            .expect("sort key should exist")
+    }
 }
 
 /// How images are ordered
@@ -54,27 +62,11 @@ pub enum Page {
 }
 
 impl Page {
-    pub const NUM_PAGES: usize = 3;
-
-    pub fn get_pages() -> &'static [Page] {
-        &[Page::Gallery, Page::Bookmarks, Page::Duplicates]
-    }
-
-    pub fn get_name(&self) -> &'static str {
-        match self {
-            Page::Bookmarks => "Bookmarks",
-            Page::Gallery => "Gallery",
-            Page::Duplicates => "Duplicates",
-        }
-    }
-
-    pub fn get_icon(&self) -> IconName {
-        match self {
-            Page::Bookmarks => IconName::Heart,
-            Page::Gallery => IconName::GalleryVerticalEnd,
-            Page::Duplicates => IconName::Copy,
-        }
-    }
+    pub const ALL: [(Page, &'static str, IconName); 3] = [
+        (Page::Gallery, "Gallery", IconName::GalleryVerticalEnd),
+        (Page::Bookmarks, "Bookmarks", IconName::Heart),
+        (Page::Duplicates, "Duplicates", IconName::Copy),
+    ];
 
     /// Get the default view for the page
     pub fn default_view(&self) -> View {
@@ -84,26 +76,13 @@ impl Page {
             Self::Duplicates => View::List,
         }
     }
-}
 
-impl From<Page> for usize {
-    fn from(page: Page) -> Self {
-        match page {
-            Page::Gallery => 0,
-            Page::Bookmarks => 1,
-            Page::Duplicates => 2,
-        }
-    }
-}
-
-impl From<usize> for Page {
-    fn from(index: usize) -> Self {
-        match index {
-            0 => Page::Gallery,
-            1 => Page::Bookmarks,
-            2 => Page::Duplicates,
-            _ => unreachable!(),
-        }
+    /// Index of this page within `ALL`
+    pub fn index(&self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|(p, _, _)| p == self)
+            .expect("page should exist")
     }
 }
 
