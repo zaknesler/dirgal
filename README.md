@@ -4,9 +4,7 @@
 
 Thanks to Zed's wonderful [GPUI](https://gpui.rs) library, _dirgal_ is nible, responsive, and cross-platform by default. It currently supports a handful of features such as bookmarks, group/grid/list views, sorting, basic duplicate detection, grid sizing, etc. with more features planned.
 
-This app is intended for quickly browsing through images in a directory, and is not some replacement for an image cataloging tool like Capture One or Lightroom.
-
-This is a work-in-progress side project and is mainly for casual (read: not professional) use.
+This app is a work-in-progress side project and is mainly for casual (read: not professional) use. It is intended for quickly browsing through images in a directory, and is not some replacement for an image cataloging tool like Capture One or Lightroom.
 
 ### Usage
 
