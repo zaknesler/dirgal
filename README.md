@@ -6,7 +6,7 @@ Using Zed's wonderful GPUI library, _dirgal_ is nimble and responsive, and curre
 
 This is a work-in-progress side project and is mainly for casual (read: not professional) use.
 
-#### Usage
+### Usage
 
 ```sh
 # Open a gallery that displays all nested images
@@ -16,7 +16,7 @@ dirgal ~/Downloads
 dirgal --prefetch ~/Downloads
 ```
 
-#### Ideas
+### Ideas
 
 Some of these are completely out-of-scope and unrealistic, but would be nice to have:
 
