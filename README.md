@@ -1,3 +1,5 @@
+<img width="100" src=".github/assets/logo.svg" />
+
 **dirgal** _[directory gallery]_ is a fast, friendly image gallery you can open in a directory with a single command.
 
 It's not meant to be used like a photo catalog like Capture One. Just a quick way to browse through a directory of images to see what's in there.
