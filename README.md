@@ -2,7 +2,7 @@
 
 **dirgal** _[directory gallery]_ is a fast, friendly image gallery you can open within a directory from your terminal.
 
-Using Zed's wonderful GPUI library, _dirgal_ is nimble and responsive, and currently supports a handful of features such as bookmarks, group/grid/list views, sorting, basic duplicate detection, grid sizing, etc. with more features planned.
+Using Zed's wonderful [GPUI](https://gpui.rs) library, _dirgal_ is nimble and responsive, and currently supports a handful of features such as bookmarks, group/grid/list views, sorting, basic duplicate detection, grid sizing, etc. with more features planned.
 
 This app is intended for quickly browsing through images in a directory, and is not some replacement for an image cataloging tool like Capture One or Lightroom.
 
@@ -11,11 +11,8 @@ This is a work-in-progress side project and is mainly for casual (read: not prof
 ### Usage
 
 ```sh
-# Open a gallery that displays all nested images
+# Scan all images in ~/Downloads and open a browsable gallery
 dirgal ~/Downloads
-
-# Prefetch all thumbnails ahead of time
-dirgal --prefetch ~/Downloads
 ```
 
 ### Ideas
