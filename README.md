@@ -10,9 +10,20 @@ This app is a work-in-progress side project and is mainly for casual (read: not 
 
 ### Usage
 
+Install via Cargo:
+
 ```sh
-# Scan all images in ~/Downloads and open a browsable gallery
-dirgal ~/Downloads
+cargo install --git https://github.com/zaknesler/dirgal
+```
+
+Run inside your terminal:
+
+```sh
+# Scan all images (recursively) in the current directory and open a gallery window
+dirgal
+
+# Or pass in multiple roots...
+dirgal ~/Downloads ~/Pictures
 ```
 
 ### Ideas
