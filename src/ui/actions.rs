@@ -10,7 +10,7 @@ actions!([
     CollapseAll,
     OpenLightbox,
     CloseLightbox,
-    ToggleGrouped,
+    SwitchView,
     ZoomIn,
     ZoomOut,
     ZoomReset,

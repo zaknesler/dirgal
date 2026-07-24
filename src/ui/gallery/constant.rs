@@ -5,8 +5,8 @@ pub const DEBUG: bool = false;
 pub const TILE_MIN: f32 = 200.0;
 /// Spacing between tiles in pixels
 pub const GRID_GAP: f32 = 6.0;
-/// Total horizontal padding around the grid in pixels
-pub const GRID_OUTER_MARGIN: f32 = 32.0;
+/// Horizontal padding on either side of the grid
+pub const GRID_OUTER_MARGIN: f32 = 16.0;
 
 /// Extra vertical space (pixels) above and below the viewport whose thumbnails are eagerly queued
 pub const GRID_OVERDRAW: f32 = 600.0;

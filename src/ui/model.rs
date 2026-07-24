@@ -73,7 +73,7 @@ impl Page {
         match self {
             Self::Gallery => View::Grouped,
             Self::Bookmarks => View::Grid,
-            Self::Duplicates => View::List,
+            Self::Duplicates => View::Grid,
         }
     }
 

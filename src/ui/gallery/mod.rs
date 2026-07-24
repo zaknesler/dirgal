@@ -217,15 +217,12 @@ impl Gallery {
     }
 
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
-    fn toggle_grouped(&mut self, cx: &mut Context<Self>) {
-        if !self.is_groupable(cx) {
-            return;
-        }
-
-        self.view = if self.view == View::Grouped {
-            View::Grid
-        } else {
-            View::Grouped
+    fn switch_view(&mut self, cx: &mut Context<Self>) {
+        self.view = match self.view {
+            View::Grouped => View::Grid,
+            View::Grid => View::List,
+            View::List if self.is_groupable(cx) => View::Grouped,
+            View::List => View::Grid,
         };
 
         self.refresh(cx);
@@ -409,9 +406,9 @@ impl Gallery {
         }
     }
 
-    /// Compute column count and tile size from the viewport width
+    /// Compute optimal column count and tile size from the viewport width
     fn get_grid_layout(&self, window: &Window) -> (usize, f32) {
-        let avail = window.viewport_size().width.as_f32() - GRID_OUTER_MARGIN;
+        let avail = window.viewport_size().width.as_f32() - GRID_OUTER_MARGIN * 2.0;
         let cols = match self.column_override {
             Some(c) => c,
             None => (((avail + GRID_GAP) / (TILE_MIN + GRID_GAP)).floor() as usize).max(1),
@@ -811,13 +808,8 @@ impl Gallery {
     }
 
     /// Toggle directory grouping
-    fn on_toggle_grouped(
-        &mut self,
-        _: &actions::ToggleGrouped,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.toggle_grouped(cx);
+    fn on_switch_view(&mut self, _: &actions::SwitchView, _: &mut Window, cx: &mut Context<Self>) {
+        self.switch_view(cx);
     }
 
     fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {

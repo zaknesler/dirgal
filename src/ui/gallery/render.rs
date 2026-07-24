@@ -29,6 +29,8 @@ use gpui_component::{
 };
 use std::path::Path;
 
+const TRUNCATE_STR: &str = "…";
+
 impl Gallery {
     /// Render a single list row, either a group header or a row of tiles
     fn render_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -65,10 +67,10 @@ impl Gallery {
             .w_full()
             .items_center()
             .gap_2()
-            .px(px(GRID_OUTER_MARGIN / 2.0))
-            .pt(px(GRID_OUTER_MARGIN / 2.0))
+            .px(px(GRID_OUTER_MARGIN))
+            .pt(px(GRID_OUTER_MARGIN))
             .when(!is_collapsed || is_last_row, |el| {
-                el.pb(px(GRID_OUTER_MARGIN / 2.0))
+                el.pb(px(GRID_OUTER_MARGIN))
             })
             .cursor_pointer()
             .group("header")
@@ -119,12 +121,12 @@ impl Gallery {
 
         h_flex()
             .w_full()
-            .px(px(GRID_OUTER_MARGIN / 2.0))
+            .px(px(GRID_OUTER_MARGIN))
             .gap(px(GRID_GAP))
-            .when(is_only_row, |el| el.pt(px(GRID_OUTER_MARGIN / 2.0)))
+            .when(is_only_row, |el| el.pt(px(GRID_OUTER_MARGIN)))
             .when_else(
                 is_last_row,
-                |el| el.pb(px(GRID_OUTER_MARGIN / 2.0)),
+                |el| el.pb(px(GRID_OUTER_MARGIN)),
                 |el| el.pb(px(GRID_GAP)),
             )
             .children(
@@ -481,9 +483,8 @@ impl Gallery {
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_sm()
-                .text_ellipsis()
                 .text_overflow(gpui::TextOverflow::TruncateMiddle(
-                    SharedString::new_static("…"),
+                    SharedString::new_static(TRUNCATE_STR),
                 ))
                 .child(name)
         };
@@ -699,20 +700,33 @@ impl Gallery {
                             let thumb = this.render_thumb(&hash);
 
                             items.push(
-                                div()
+                                h_flex()
                                     .id(image.hash.to_string())
-                                    .px(px(GRID_OUTER_MARGIN / 2.))
-                                    .pb(px(GRID_GAP))
+                                    .px(px(GRID_OUTER_MARGIN))
+                                    .py_2()
+                                    .w_full()
+                                    .gap_4()
+                                    .when(index != 0, |el| el.border_t_1())
+                                    .items_center()
+                                    .rounded_md()
+                                    .overflow_hidden()
+                                    .border_color(cx.theme().border)
+                                    .cursor_pointer()
                                     .child(
-                                        h_flex()
-                                            .px_4()
-                                            .py_2()
-                                            .border_1()
-                                            .rounded_md()
+                                        div()
+                                            .flex_shrink_0()
                                             .overflow_hidden()
-                                            .border_color(cx.theme().border)
-                                            .cursor_pointer()
-                                            .child(div().size(px(100.)).child(thumb))
+                                            .size(px(80.))
+                                            .child(thumb),
+                                    )
+                                    .child(
+                                        v_flex()
+                                            .justify_center()
+                                            .flex_1()
+                                            .overflow_hidden()
+                                            .text_overflow(gpui::TextOverflow::TruncateMiddle(
+                                                SharedString::new_static(TRUNCATE_STR),
+                                            ))
                                             .child(image.src_path.to_string_lossy().to_string()),
                                     ),
                             );
@@ -790,7 +804,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_prev))
             .on_action(cx.listener(Self::on_next))
             .on_action(cx.listener(Self::on_open_lightbox))
-            .on_action(cx.listener(Self::on_toggle_grouped))
+            .on_action(cx.listener(Self::on_switch_view))
             .on_action(cx.listener(Self::on_close))
             .on_action(cx.listener(Self::on_zoom_in))
             .on_action(cx.listener(Self::on_zoom_out))

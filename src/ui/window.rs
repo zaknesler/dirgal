@@ -80,7 +80,7 @@ fn register_actions(cx: &mut App) {
         ("pageup", actions::JumpToTop),
         ("pagedown", actions::JumpToBottom),
         ("space", actions::OpenLightbox),
-        ("g", actions::ToggleGrouped),
+        ("v", actions::SwitchView),
         ("b", actions::Bookmark::Current),
         ("k", actions::CopyPathToClipboard::Current),
         ("o", actions::OpenInFinder::Current),
