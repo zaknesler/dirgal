@@ -74,8 +74,10 @@ fn register_actions(cx: &mut App) {
     // Gallery (unfocused)
     bind_keys!(
         Some(crate::ui::CONTEXT_GALLERY_UNFOCUSED),
-        ("left", actions::Prev),
-        ("right", actions::Next),
+        ("up", actions::Up),
+        ("down", actions::Down),
+        ("left", actions::Left),
+        ("right", actions::Right),
         ("secondary-up", actions::JumpToTop),
         ("secondary-down", actions::JumpToBottom),
         ("pageup", actions::JumpToTop),

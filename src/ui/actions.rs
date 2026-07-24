@@ -6,8 +6,10 @@ use std::path::PathBuf;
 actions!([
     Quit,
     Minimize,
-    Prev,
-    Next,
+    Up,
+    Down,
+    Left,
+    Right,
     CollapseAll,
     OpenLightbox,
     CloseLightbox,

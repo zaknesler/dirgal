@@ -147,7 +147,7 @@ impl Gallery {
             bookmarks,
             grid,
             view: View::Grouped,
-            tile_size: TILE_MIN,
+            tile_size: GRID_TILE_MIN,
             num_columns: 1,
             column_override: None,
             active_hash: None,
@@ -409,9 +409,11 @@ impl Gallery {
     /// Compute optimal column count and tile size from the viewport width
     fn get_grid_layout(&self, window: &Window) -> (usize, f32) {
         let avail = window.viewport_size().width.as_f32() - GRID_OUTER_MARGIN * 2.0;
+
+        // Respect the user's chosen column count over the calculated count
         let cols = match self.column_override {
             Some(c) => c,
-            None => (((avail + GRID_GAP) / (TILE_MIN + GRID_GAP)).floor() as usize).max(1),
+            None => (((avail + GRID_GAP) / (GRID_TILE_MIN + GRID_GAP)).floor() as usize).max(1),
         };
 
         let tile = ((avail - cols.saturating_sub(1) as f32 * GRID_GAP) / cols as f32).max(30.0);
@@ -612,6 +614,22 @@ impl Gallery {
         }
     }
 
+    fn scroll_to_hash(&mut self, hash: &ImageHash) {
+        // TODO: only "scroll" if it's not already in view
+
+        if let Some(row_ix) = self.get_visible_position(hash).and_then(|pos| {
+            self.rows.iter().position(|row| match row {
+                Row::Tiles(range) => range.contains(&pos),
+                Row::Header(_) => false,
+            })
+        }) {
+            self.grid.scroll_to(ListOffset {
+                item_ix: row_ix,
+                offset_in_item: px(0.),
+            });
+        }
+    }
+
     /// Show the lightbox for an image and pause urgent grid thumbnail work
     fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
         self.lightbox = Some(*hash);
@@ -640,6 +658,29 @@ impl Gallery {
         let next = self.filtered_images[new_pos_index];
 
         self.open_lightbox(&next, cx);
+    }
+
+    /// Select the next or previous image in the filtered set
+    fn select_step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        // Only change single selections
+        if self.selected_hashes.len() != 1 {
+            return;
+        }
+
+        let selected_hash = self
+            .selected_hashes
+            .first()
+            .expect("image should be selected");
+
+        let pos = self
+            .get_visible_position(&selected_hash)
+            .expect("image should exist") as isize;
+
+        let next_hash_index = (pos + delta).rem_euclid(self.filtered_images.len() as isize);
+
+        let new_hash = self.filtered_images[next_hash_index as usize];
+        self.select_single_hash(&new_hash, cx);
+        self.scroll_to_hash(&new_hash);
     }
 
     /// Collapse or expand a directory group
@@ -718,17 +759,17 @@ impl Gallery {
         cx.write_to_clipboard(ClipboardItem::new_string(paths.join("\n")));
     }
 
-    /// Enlarge tiles by removing a column, down to a minimum of one
+    /// Enlarge tiles by removing a column
     fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
         let current = self.column_override.unwrap_or(self.num_columns);
-        self.column_override = Some((current - 1).max(1));
+        self.column_override = Some((current - 1).max(MIN_COLS));
         cx.notify();
     }
 
-    /// Shrink tiles by adding a column, up to a maximum of twenty
+    /// Shrink tiles by adding a column
     fn zoom_grid_out(&mut self, cx: &mut Context<Self>) {
         let current = self.column_override.unwrap_or(self.num_columns);
-        self.column_override = Some((current + 1).min(20));
+        self.column_override = Some((current + 1).min(MAX_COLS));
         cx.notify();
     }
 
@@ -774,12 +815,44 @@ impl Gallery {
         cx.notify();
     }
 
-    fn on_prev(&mut self, _: &actions::Prev, _: &mut Window, cx: &mut Context<Self>) {
-        self.step(-1, cx);
+    fn on_up(&mut self, _: &actions::Up, window: &mut Window, cx: &mut Context<Self>) {
+        if self.lightbox.is_some() {
+            return;
+        }
+
+        let (num_columns, _) = self.get_grid_layout(window);
+        self.select_step(-1 * num_columns as isize, cx);
     }
 
-    fn on_next(&mut self, _: &actions::Next, _: &mut Window, cx: &mut Context<Self>) {
-        self.step(1, cx);
+    fn on_down(&mut self, _: &actions::Down, window: &mut Window, cx: &mut Context<Self>) {
+        if self.lightbox.is_some() {
+            return;
+        }
+
+        let (num_columns, _) = self.get_grid_layout(window);
+        self.select_step(num_columns as isize, cx);
+    }
+
+    fn on_left(&mut self, _: &actions::Left, _: &mut Window, cx: &mut Context<Self>) {
+        if self.lightbox.is_some() {
+            self.step(-1, cx);
+            return;
+        }
+
+        if self.selected_hashes.len() == 1 {
+            self.select_step(-1, cx);
+        }
+    }
+
+    fn on_right(&mut self, _: &actions::Right, _: &mut Window, cx: &mut Context<Self>) {
+        if self.lightbox.is_some() {
+            self.step(1, cx);
+            return;
+        }
+
+        if self.selected_hashes.len() == 1 {
+            self.select_step(1, cx);
+        }
     }
 
     fn on_open_lightbox(
@@ -792,6 +865,14 @@ impl Gallery {
             return;
         }
 
+        // Open currently-selected image
+        if self.selected_hashes.len() == 1 {
+            let hash = self.selected_hashes[0];
+            self.open_lightbox(&hash, cx);
+            return;
+        }
+
+        // Otherwise find the first image (if grouped, use the image from the first opened group)
         let first = if self.view == View::Grouped {
             self.groups
                 .iter()
@@ -913,12 +994,10 @@ impl Gallery {
     /// Jump to an image on the gallery page, expanding its group and scrolling to its row
     fn on_reveal_in_gallery(
         &mut self,
-        action: &actions::RevealInGallery,
+        actions::RevealInGallery(hash): &actions::RevealInGallery,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let actions::RevealInGallery(hash) = action;
-
         if let Some(entry) = self.get_image_entry(hash) {
             let parent = entry
                 .src_path
@@ -933,17 +1012,7 @@ impl Gallery {
         self.select_single_hash(hash, cx);
         self.refresh(cx);
 
-        if let Some(row_ix) = self.get_visible_position(hash).and_then(|pos| {
-            self.rows.iter().position(|row| match row {
-                Row::Tiles(range) => range.contains(&pos),
-                Row::Header(_) => false,
-            })
-        }) {
-            self.grid.scroll_to(ListOffset {
-                item_ix: row_ix,
-                offset_in_item: px(0.),
-            });
-        }
+        self.scroll_to_hash(hash);
 
         cx.notify();
     }
