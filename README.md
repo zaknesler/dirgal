@@ -43,6 +43,7 @@ Some of these are completely out-of-scope and unrealistic, but would be nice to 
 - Save the hash cache periodically during a scan, not just at the end, so a big scan over a slow drive (like my really slow NAS) doesn't lose all its progress if interrupted
 - Watch mode?
 - Image tagging?
+- RAW images?
 - Videos?
 - Similar image detection?
 - Batch renaming?
