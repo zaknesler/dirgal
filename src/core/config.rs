@@ -22,17 +22,16 @@ pub struct AppConfig {
 impl AppConfig {
     /// Load the config from disk with an optional override path
     pub fn load(override_path: Option<String>) -> AppResult<AppConfig> {
-        Self::init_config_file()?;
+        Self::init_file()?;
 
-        let config_dir = Self::get_config_dir()?;
+        let dir = Self::get_dir()?;
 
         let mut config = Figment::new()
             .merge(Toml::string(std::str::from_utf8(
                 Self::get_default_data().as_ref(),
             )?))
             .merge(Toml::file(
-                config_dir
-                    .join(CONFIG_FILE_NAME)
+                dir.join(CONFIG_FILE_NAME)
                     .to_str()
                     .ok_or_else(|| AppError::ConfigFileNotFound)?,
             ));
@@ -47,9 +46,9 @@ impl AppConfig {
 
     /// Save the config to disk
     pub fn save(&self) -> AppResult<()> {
-        let config_dir = Self::get_config_dir()?;
+        let dir = Self::get_dir()?;
         let contents = toml::to_string_pretty(self)?;
-        fs::write(config_dir.join(CONFIG_FILE_NAME), contents)?;
+        fs::write(dir.join(CONFIG_FILE_NAME), contents)?;
 
         Ok(())
     }
@@ -61,36 +60,36 @@ impl AppConfig {
     }
 
     /// Get the path to the config directory
-    fn get_config_dir() -> AppResult<PathBuf> {
+    fn get_dir() -> AppResult<PathBuf> {
         directories::ProjectDirs::from("", "", PROJECT_DIR)
             .map(|dirs| dirs.config_dir().to_path_buf())
             .ok_or_else(|| AppError::ConfigDirNotFound)
     }
 
     /// Initialize config directory and config.toml
-    fn init_config_file() -> AppResult<PathBuf> {
-        let config_dir = Self::init_config_dir()?;
+    fn init_file() -> AppResult<PathBuf> {
+        let dir = Self::init_dir()?;
 
         // Create local config if it doesn't exist
-        let local_config_file = config_dir.join(CONFIG_FILE_NAME);
-        let exists = local_config_file.try_exists()?;
+        let local_file = dir.join(CONFIG_FILE_NAME);
+        let exists = local_file.try_exists()?;
 
         if !exists {
-            let mut local_config = fs::File::create(local_config_file)?;
+            let mut local_config = fs::File::create(local_file)?;
             local_config.write_all(Self::get_default_data().as_ref())?;
         }
 
-        Ok(config_dir)
+        Ok(dir)
     }
 
     /// Initialize config directory
-    fn init_config_dir() -> AppResult<PathBuf> {
-        let config_dir = Self::get_config_dir()?;
+    fn init_dir() -> AppResult<PathBuf> {
+        let dir = Self::get_dir()?;
 
         // Create project config directory if it doesn't exist
-        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&dir)?;
 
-        Ok(config_dir)
+        Ok(dir)
     }
 }
 
