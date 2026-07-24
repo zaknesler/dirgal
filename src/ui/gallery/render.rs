@@ -240,7 +240,7 @@ impl Gallery {
                 Box::new(actions::CopyPathToClipboard::Thumb(hash)),
             )
             .separator()
-            .when(page == Page::Bookmarks, |menu| {
+            .when(page != Page::Gallery, |menu| {
                 menu.menu_with_icon(
                     "Reveal in gallery",
                     IconName::GalleryVerticalEnd,

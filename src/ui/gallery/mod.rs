@@ -930,6 +930,7 @@ impl Gallery {
 
         self.page = Page::Gallery;
         self.close_lightbox(cx);
+        self.select_single_hash(hash, cx);
         self.refresh(cx);
 
         if let Some(row_ix) = self.get_visible_position(hash).and_then(|pos| {
