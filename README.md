@@ -10,21 +10,23 @@ This app is a work-in-progress side project and is mainly for casual (read: not 
 
 ### Usage
 
-Install via Cargo:
+1. Pre-release binaries are available for Windows, macOS, and Linux. Go to the latest result of the [Release action](https://github.com/zaknesler/dirgal/actions/workflows/release.yml) to download the latest build for your platform.
 
-```sh
-cargo install --git https://github.com/zaknesler/dirgal
-```
+2. Install via Cargo:
 
-Run inside your terminal:
+   ```sh
+   cargo install --git https://github.com/zaknesler/dirgal
+   ```
 
-```sh
-# Scan all images (recursively) in the current directory and open a gallery window
-dirgal
+   Run inside your terminal:
 
-# Or pass in multiple roots...
-dirgal ~/Downloads ~/Pictures
-```
+   ```sh
+   # Scan all images (recursively) in the current directory and open a gallery window
+   dirgal
+
+   # Or pass in multiple roots...
+   dirgal ~/Downloads ~/Pictures
+   ```
 
 ### Ideas
 
