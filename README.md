@@ -12,7 +12,7 @@ This app is a work-in-progress side project and is mainly for casual (read: not 
 
 1. Pre-release binaries are available for Windows, macOS, and Linux. Go to the latest result of the [Release action](https://github.com/zaknesler/dirgal/actions/workflows/release.yml) to download the latest build for your platform.
 
-2. Install via Cargo:
+2. Alternatively, you could install via Cargo:
 
    ```sh
    cargo install --git https://github.com/zaknesler/dirgal
