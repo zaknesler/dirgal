@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 actions!([
     Quit,
+    Minimize,
     Prev,
     Next,
     CollapseAll,

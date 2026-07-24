@@ -806,6 +806,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_open_lightbox))
             .on_action(cx.listener(Self::on_switch_view))
             .on_action(cx.listener(Self::on_close))
+            .on_action(cx.listener(Self::on_minimize))
             .on_action(cx.listener(Self::on_zoom_in))
             .on_action(cx.listener(Self::on_zoom_out))
             .on_action(cx.listener(Self::on_zoom_reset))

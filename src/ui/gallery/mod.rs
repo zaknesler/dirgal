@@ -816,6 +816,10 @@ impl Gallery {
         self.close_lightbox(cx);
     }
 
+    fn on_minimize(&mut self, _: &actions::Minimize, window: &mut Window, _: &mut Context<Self>) {
+        window.minimize_window();
+    }
+
     fn on_zoom_in(&mut self, _: &actions::ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
         self.zoom_grid_in(cx);
     }

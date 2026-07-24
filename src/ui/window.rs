@@ -58,7 +58,8 @@ fn register_actions(cx: &mut App) {
     bind_keys!(
         None,
         ("secondary-q", actions::Quit),
-        ("ctrl-shift-w", actions::Quit)
+        ("ctrl-shift-w", actions::Quit),
+        ("cmd-m", actions::Minimize)
     );
 
     // Gallery
