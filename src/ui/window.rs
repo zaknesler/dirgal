@@ -1,7 +1,7 @@
 use crate::ui::{
-    actions,
     gallery::Gallery,
     state::{AppState, SharedAppState},
+    *,
 };
 use gpui::{App, AppContext as _, KeyBinding, TitlebarOptions, WindowOptions};
 use gpui_component::{Theme, ThemeMode};
@@ -64,7 +64,7 @@ fn register_actions(cx: &mut App) {
 
     // Gallery
     bind_keys!(
-        Some(crate::ui::CONTEXT_GALLERY),
+        Some(CONTEXT_GALLERY),
         ("ctrl-tab", actions::NextPage),
         ("ctrl-shift-tab", actions::PrevPage),
         ("escape", actions::CloseLightbox),
@@ -73,7 +73,7 @@ fn register_actions(cx: &mut App) {
 
     // Gallery (unfocused)
     bind_keys!(
-        Some(crate::ui::CONTEXT_GALLERY_UNFOCUSED),
+        Some(CONTEXT_GALLERY_UNFOCUSED),
         ("up", actions::Up),
         ("down", actions::Down),
         ("left", actions::Left),

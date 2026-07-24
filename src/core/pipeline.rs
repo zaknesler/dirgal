@@ -1,8 +1,10 @@
 use crate::{
-    cache::{HashCache, HashCacheEntry},
+    core::{
+        cache::{HashCache, HashCacheEntry},
+        hash::{hash_content, hash_path},
+        image::{self, FoundFile, ImageEntry, SMALL_FILE_BYTES},
+    },
     error::AppResult,
-    hash::{hash_content, hash_path},
-    image::{self, FoundFile, ImageEntry, SMALL_FILE_BYTES},
 };
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -72,7 +74,7 @@ pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
         found.len()
     ));
 
-    found.sort_by(|a, b| crate::path::compare_paths(&a.path, &b.path));
+    found.sort_by(|a, b| crate::core::path::compare_paths(&a.path, &b.path));
 
     Ok(found)
 }

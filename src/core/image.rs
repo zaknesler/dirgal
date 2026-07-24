@@ -1,8 +1,9 @@
-use crate::{
-    error::AppResult,
-    path::compare_paths,
-    ui::model::{ImageHash, Sort, SortKey},
-};
+use crate::core::path::compare_paths;
+use crate::error::AppResult;
+use crate::ui::model::{ImageHash, Sort, SortKey};
+use gpui::Img;
+use humansize::{BINARY, FormatSizeOptions, format_size};
+use ignore::WalkBuilder;
 use std::{
     cmp::Ordering,
     collections::HashSet,
@@ -11,10 +12,6 @@ use std::{
     sync::Arc,
     time::SystemTime,
 };
-
-use gpui::Img;
-use humansize::{BINARY, FormatSizeOptions, format_size};
-use ignore::WalkBuilder;
 
 pub const THUMB_PX: u32 = 336;
 
@@ -203,8 +200,8 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
 /// Compare by embedded path date, keeping dateless images at the end regardless of direction
 fn compare_date_in_path(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Ordering {
     match (
-        crate::path::extract_date_from_path(&a.src_path),
-        crate::path::extract_date_from_path(&b.src_path),
+        crate::core::path::extract_date_from_path(&a.src_path),
+        crate::core::path::extract_date_from_path(&b.src_path),
     ) {
         (None, None) => compare_paths(&a.src_path, &b.src_path),
         (None, Some(_)) => Ordering::Greater,

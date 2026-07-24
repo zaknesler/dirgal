@@ -1,12 +1,12 @@
-use crate::{
+use crate::core::{
     image::format_bytes,
     path::{group_segments, label_for},
-    ui::{
-        gallery::{Gallery, constant::*},
-        model::*,
-        *,
-    },
     util::{self, file_manager_label},
+};
+use crate::ui::{
+    gallery::{Gallery, constant::*},
+    model::*,
+    *,
 };
 use gpui::{
     AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, ScrollWheelEvent,

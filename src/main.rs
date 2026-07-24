@@ -1,24 +1,19 @@
 #![allow(clippy::result_large_err)]
 
+use crate::core::{config::AppConfig, path, pipeline};
 use clap::Parser as _;
 
-mod cache;
 mod cli;
-mod config;
+mod core;
 mod error;
-mod hash;
-mod image;
-mod path;
-mod pipeline;
 mod ui;
-mod util;
 
 fn main() -> error::AppResult<()> {
     let args = cli::Args::parse();
 
     init_tracing(args.log_level)?;
 
-    let config = config::AppConfig::load(args.config)?;
+    let config = AppConfig::load(args.config)?;
 
     let roots = path::get_roots(args.paths);
     let thumb_dir = path::get_thumbnail_dir();

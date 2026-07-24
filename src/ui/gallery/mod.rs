@@ -1,9 +1,9 @@
-use crate::{
+use crate::core::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES},
-    ui::{gallery::constant::*, model::*, *},
     util::{self},
 };
+use crate::ui::{gallery::constant::*, model::*, *};
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, ListAlignment,
     ListOffset, ListState, Window, prelude::*, px,
@@ -79,7 +79,7 @@ impl Gallery {
         let snapshot = state.read(cx).clone();
 
         let sort = Sort::default();
-        let (images, duplicates) = crate::image::deduplicate_and_sort(snapshot.images, sort);
+        let (images, duplicates) = crate::core::image::deduplicate_and_sort(snapshot.images, sort);
 
         let num_concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -121,7 +121,7 @@ impl Gallery {
             .map(|(i, e)| (ImageHash(e.hash), i))
             .collect();
 
-        let bookmarks = crate::image::resolve_bookmarks(&snapshot.config.bookmarks, &images);
+        let bookmarks = crate::core::image::resolve_bookmarks(&snapshot.config.bookmarks, &images);
 
         // Create a grid that is sized to show all of the items upon first load
         let grid = ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all();
@@ -164,7 +164,7 @@ impl Gallery {
 
     /// Returns whether the current image set supports grouping
     fn is_groupable(&self, cx: &mut Context<Self>) -> bool {
-        crate::image::compute_groupable(&self.images, &self.state.read(cx).roots)
+        crate::core::image::compute_groupable(&self.images, &self.state.read(cx).roots)
     }
 
     /// Set the current page to the given page, updating the view and refreshing
@@ -191,7 +191,7 @@ impl Gallery {
 
         // Already deduped so just re-sort in place and rebuild the index
         self.images
-            .sort_by(|a, b| crate::image::compare_key(a, b, sort));
+            .sort_by(|a, b| crate::core::image::compare_key(a, b, sort));
         self.image_index = self
             .images
             .iter()
@@ -200,8 +200,10 @@ impl Gallery {
             .collect();
 
         // Bookmarks follow image order so rebuild them from config
-        self.bookmarks =
-            crate::image::resolve_bookmarks(&self.state.read(cx).config.bookmarks, &self.images);
+        self.bookmarks = crate::core::image::resolve_bookmarks(
+            &self.state.read(cx).config.bookmarks,
+            &self.images,
+        );
 
         self.refresh(cx);
     }
@@ -492,7 +494,7 @@ impl Gallery {
         if self.view == View::Grouped {
             filtered.sort_by(
                 |a, b| match (self.get_image_entry(a), self.get_image_entry(b)) {
-                    (Some(x), Some(y)) => crate::image::compare_parents(x, y),
+                    (Some(x), Some(y)) => crate::core::image::compare_parents(x, y),
                     _ => std::cmp::Ordering::Equal,
                 },
             );
@@ -723,8 +725,10 @@ impl Gallery {
             }
         });
 
-        self.bookmarks =
-            crate::image::resolve_bookmarks(&self.state.read(cx).config.bookmarks, &self.images);
+        self.bookmarks = crate::core::image::resolve_bookmarks(
+            &self.state.read(cx).config.bookmarks,
+            &self.images,
+        );
 
         cx.notify();
 

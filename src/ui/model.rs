@@ -1,8 +1,7 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
 use gpui::ElementId;
 use gpui_component::IconName;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
 pub struct ImageHash(pub u64);
