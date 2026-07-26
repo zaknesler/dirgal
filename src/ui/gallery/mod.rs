@@ -265,15 +265,22 @@ impl Gallery {
         }
 
         let query = query.to_lowercase();
+        let keywords: HashSet<&str> = query.split_whitespace().collect();
 
-        candidates
-            .into_iter()
-            .filter(|hash| {
-                self.get_image_entry(hash)
-                    .map(|e| e.src_path.to_string_lossy().to_lowercase().contains(&query))
-                    .unwrap_or(false)
-            })
-            .collect()
+        let mut matches: Vec<ImageHash> = Vec::new();
+
+        for hash in candidates {
+            if let Some(image) = self.get_image_entry(&hash) {
+                let path = image.src_path.to_string_lossy().to_lowercase();
+
+                // Must contain all keywords
+                if keywords.iter().all(|k| path.contains(k)) {
+                    matches.push(hash);
+                }
+            }
+        }
+
+        matches
     }
 
     /// Group filtered images by parent directory which is contiguous since filtered_images is parent sorted
