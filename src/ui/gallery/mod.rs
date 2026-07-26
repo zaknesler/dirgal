@@ -13,11 +13,13 @@ use gpui_component::{
     input::{InputEvent, InputState},
     select::{SelectEvent, SelectState},
 };
+use library::Library;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub mod constant;
+pub mod library;
 pub mod render;
 
 /// Main gallery view: grid of thumbnails, search, bookmarks, and lightbox
@@ -35,16 +37,11 @@ pub struct Gallery {
     view: View,
 
     // Data
-    roots: Vec<PathBuf>,
-    images: Vec<ImageEntry>,
-    image_index: HashMap<ImageHash, usize>,
-    duplicates: Vec<ImageEntry>,
-    duplicate_index: HashMap<ImageHash, usize>,
+    library: Library,
     filtered_images: Vec<ImageHash>,
     rows: Vec<Row>,
     groups: Vec<Group>,
     collapsed_groups: HashSet<GroupHash>,
-    bookmarks: Vec<ImageHash>,
 
     // Grid
     grid: ListState,
@@ -72,14 +69,11 @@ impl Gallery {
         let state = state::SharedAppState::from_app(cx).entity().clone();
 
         cx.observe(&state, |this, _, cx| {
-            this.refresh(cx);
+            this.reflow(cx);
         })
         .detach();
 
-        let snapshot = state.read(cx).clone();
-
         let sort = Sort::default();
-        let (images, duplicates) = crate::core::image::deduplicate_and_sort(snapshot.images, sort);
 
         let num_concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -109,20 +103,6 @@ impl Gallery {
         cx.subscribe_in(&sort_select, window, Self::on_sort)
             .detach();
 
-        let image_index = images
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (ImageHash(e.hash), i))
-            .collect();
-
-        let duplicate_index = duplicates
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (ImageHash(e.hash), i))
-            .collect();
-
-        let bookmarks = crate::core::image::resolve_bookmarks(&snapshot.config.bookmarks, &images);
-
         // Create a grid that is sized to show all of the items upon first load
         let grid = ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all();
 
@@ -135,16 +115,11 @@ impl Gallery {
             lightbox: None,
             sort,
             sort_select,
-            roots: snapshot.roots,
-            images,
-            image_index,
-            duplicates,
-            duplicate_index,
+            library: Library::empty(),
             filtered_images: Vec::new(),
             rows: Vec::new(),
             groups: Vec::new(),
             collapsed_groups: HashSet::new(),
-            bookmarks,
             grid,
             view: View::Grouped,
             tile_size: GRID_TILE_MIN,
@@ -158,20 +133,23 @@ impl Gallery {
             num_concurrency,
         };
 
-        this.refresh(cx);
+        this.reload_from_state(cx);
         this
     }
 
     /// Returns whether the current image set supports grouping
     fn is_groupable(&self, cx: &mut Context<Self>) -> bool {
-        crate::core::image::compute_groupable(&self.images, &self.state.read(cx).roots)
+        crate::core::image::compute_groupable(
+            &self.library.images,
+            &self.state.read(cx).scanner.roots,
+        )
     }
 
     /// Set the current page to the given page, updating the view and refreshing
     fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
         self.view = self.page.default_view();
-        self.refresh(cx);
+        self.reflow(cx);
     }
 
     /// Reset the current view to grid/flat if the current image set does not support grouping
@@ -189,23 +167,10 @@ impl Gallery {
         }
         self.sort = sort;
 
-        // Already deduped so just re-sort in place and rebuild the index
-        self.images
-            .sort_by(|a, b| crate::core::image::compare_key(a, b, sort));
-        self.image_index = self
-            .images
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (ImageHash(e.hash), i))
-            .collect();
+        let bookmarks = self.state.read(cx).config.bookmarks.clone();
+        self.library.resort(sort, &bookmarks);
 
-        // Bookmarks follow image order so rebuild them from config
-        self.bookmarks = crate::core::image::resolve_bookmarks(
-            &self.state.read(cx).config.bookmarks,
-            &self.images,
-        );
-
-        self.refresh(cx);
+        self.reflow(cx);
     }
 
     /// Toggle sort direction from the toolbar button
@@ -227,7 +192,7 @@ impl Gallery {
             View::List => View::Grid,
         };
 
-        self.refresh(cx);
+        self.reflow(cx);
     }
 
     /// React to a sort-field selection from the dropdown
@@ -253,11 +218,21 @@ impl Gallery {
 
     /// Hashes for the current page in sort key order filtered by a case insensitive path search
     fn get_visible_hashes(&self, query: &str) -> Vec<ImageHash> {
-        // self.bookmarks is always kept in image sort order
+        // self.library.bookmarks is always kept in image sort order
         let candidates: Vec<ImageHash> = match self.page {
-            Page::Gallery => self.images.iter().map(|e| ImageHash(e.hash)).collect(),
-            Page::Bookmarks => self.bookmarks.clone(),
-            Page::Duplicates => self.duplicates.iter().map(|e| ImageHash(e.hash)).collect(),
+            Page::Gallery => self
+                .library
+                .images
+                .iter()
+                .map(|e| ImageHash(e.hash))
+                .collect(),
+            Page::Bookmarks => self.library.bookmarks.clone(),
+            Page::Duplicates => self
+                .library
+                .duplicates
+                .iter()
+                .map(|e| ImageHash(e.hash))
+                .collect(),
         };
 
         if query.is_empty() {
@@ -314,12 +289,12 @@ impl Gallery {
     /// Look up an image entry by content hash
     fn get_image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
         if self.page == Page::Duplicates {
-            let hash = self.duplicate_index.get(hash)?;
-            return self.duplicates.get(*hash);
+            let hash = self.library.duplicate_index.get(hash)?;
+            return self.library.duplicates.get(*hash);
         }
 
-        let hash = self.image_index.get(hash)?;
-        self.images.get(*hash)
+        let hash = self.library.image_index.get(hash)?;
+        self.library.images.get(*hash)
     }
 
     /// Get displayable path for a thumbnail from already-known state, without triggering generation
@@ -489,8 +464,48 @@ impl Gallery {
         cx.notify();
     }
 
+    /// Clear the library, reload from the scanner in current state, and refresh the UI
+    fn reload_from_state(&mut self, cx: &mut Context<Self>) {
+        let snapshot = self.state.read(cx).clone();
+        self.library = Library::from_state(snapshot, self.sort);
+        self.reflow(cx);
+    }
+
+    /// Refresh the library in the background
+    fn refresh_library(&mut self, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+
+        cx.spawn(async move |this, cx| {
+            let mut scanner = state.read_with(cx, |state, _| state.scanner.clone());
+
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    scanner.rescan()?;
+                    crate::error::AppResult::Ok(scanner)
+                })
+                .await;
+
+            match result {
+                Ok(scanner) => {
+                    state.update(cx, |state, cx| {
+                        state.scanner = scanner;
+                        cx.notify();
+                    });
+
+                    this.update(cx, |gallery, cx| gallery.reload_from_state(cx))
+                        .ok();
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "refresh failed");
+                }
+            }
+        })
+        .detach();
+    }
+
     /// Rebuild filtered images, groups, and rows for the current page and query
-    fn refresh(&mut self, cx: &mut Context<Self>) {
+    fn reflow(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
         let mut filtered = self.get_visible_hashes(&query);
 
@@ -567,7 +582,7 @@ impl Gallery {
     fn set_layout(&mut self, columns: usize, tile_size: f32, cx: &mut Context<Self>) {
         self.num_columns = columns;
         self.tile_size = tile_size;
-        self.refresh(cx);
+        self.reflow(cx);
     }
 
     /// Mark the given image as selected, deselecting any other items
@@ -698,25 +713,25 @@ impl Gallery {
             self.collapsed_groups.insert(*group_hash);
         }
 
-        self.refresh(cx);
+        self.reflow(cx);
     }
 
     /// Add or remove a bookmark and persist the change
     fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
         if let Some(index) = self.get_bookmark_index(image_hash) {
-            self.bookmarks.remove(index);
+            self.library.bookmarks.remove(index);
         } else {
-            self.bookmarks.push(*image_hash);
+            self.library.bookmarks.push(*image_hash);
         }
 
         self.persist_bookmarks(cx);
-        self.refresh(cx);
+        self.reflow(cx);
     }
 
     /// Sync bookmarks into the shared config and save it to disk
     fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
-        let current: HashSet<u64> = self.bookmarks.iter().map(|hash| hash.0).collect();
-        let loaded: HashSet<u64> = self.images.iter().map(|image| image.hash).collect();
+        let current: HashSet<u64> = self.library.bookmarks.iter().map(|hash| hash.0).collect();
+        let loaded: HashSet<u64> = self.library.images.iter().map(|image| image.hash).collect();
 
         // Merge into config, only touching loaded hashes to retain directories' bookmark
         self.state.update(cx, |state, _cx| {
@@ -725,16 +740,16 @@ impl Gallery {
                 .bookmarks
                 .retain(|h| !loaded.contains(h) || current.contains(h));
 
-            for hash in &self.bookmarks {
+            for hash in &self.library.bookmarks {
                 if !state.config.bookmarks.contains(&hash.0) {
                     state.config.bookmarks.push(hash.0);
                 }
             }
         });
 
-        self.bookmarks = crate::core::image::resolve_bookmarks(
+        self.library.bookmarks = crate::core::image::resolve_bookmarks(
             &self.state.read(cx).config.bookmarks,
-            &self.images,
+            &self.library.images,
         );
 
         cx.notify();
@@ -786,7 +801,12 @@ impl Gallery {
 
     /// Position of an image in the bookmark list, if bookmarked
     fn get_bookmark_index(&self, image_hash: &ImageHash) -> Option<usize> {
-        self.bookmarks.iter().position(|h| h == image_hash)
+        self.library.bookmarks.iter().position(|h| h == image_hash)
+    }
+
+    /// Refresh the library
+    fn on_refresh(&mut self, _: &actions::Refresh, _window: &mut Window, cx: &mut Context<Self>) {
+        self.refresh_library(cx);
     }
 
     /// Re-filter the gallery as the search input changes
@@ -800,7 +820,7 @@ impl Gallery {
         match event {
             InputEvent::Change | InputEvent::PressEnter { .. } => {
                 cx.stop_propagation();
-                self.refresh(cx);
+                self.reflow(cx);
             }
             _ => {}
         };
@@ -1021,7 +1041,7 @@ impl Gallery {
         self.page = Page::Gallery;
         self.close_lightbox(cx);
         self.select_single_hash(hash, cx);
-        self.refresh(cx);
+        self.reflow(cx);
 
         self.scroll_to_hash(hash);
 
@@ -1093,6 +1113,6 @@ impl Gallery {
             self.collapsed_groups = self.groups.iter().map(|g| g.hash).collect();
         }
 
-        self.refresh(cx);
+        self.reflow(cx);
     }
 }

@@ -16,6 +16,7 @@ pub fn create_window(state: AppState) {
             register_actions(cx);
 
             let roots_str = state
+                .scanner
                 .roots
                 .iter()
                 .map(|r| r.to_string_lossy())
@@ -69,6 +70,7 @@ fn register_actions(cx: &mut App) {
         ("ctrl-shift-tab", actions::PrevPage),
         ("escape", actions::CloseLightbox),
         ("secondary-k", actions::FocusSearch),
+        ("secondary-r", actions::Refresh),
     );
 
     // Gallery (unfocused)

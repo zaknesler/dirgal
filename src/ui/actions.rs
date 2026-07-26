@@ -6,6 +6,7 @@ use std::path::PathBuf;
 actions!([
     Quit,
     Minimize,
+    Refresh,
     Up,
     Down,
     Left,

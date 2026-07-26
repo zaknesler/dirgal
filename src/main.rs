@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use crate::core::{config::AppConfig, path, pipeline};
+use crate::core::{config::AppConfig, path, pipeline, scan::ImageScanner};
 use clap::Parser as _;
 
 mod cli;
@@ -23,18 +23,13 @@ fn main() -> error::AppResult<()> {
         return Ok(());
     }
 
-    let files = pipeline::collect_files(&roots)?;
-    let images = pipeline::build_image_entries(files, &thumb_dir, &roots)?;
+    let scanner = ImageScanner::scan(roots, thumb_dir)?;
 
     if args.prefetch {
-        pipeline::generate_thumbnails(&images)?;
+        scanner.generate_thumbnails()?;
     }
 
-    let state = ui::state::AppState {
-        config,
-        roots,
-        images,
-    };
+    let state = ui::state::AppState { config, scanner };
 
     ui::window::create_window(state);
 

@@ -3,8 +3,7 @@ use gpui::AppContext as _;
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub config: crate::core::config::AppConfig,
-    pub roots: Vec<std::path::PathBuf>,
-    pub images: Vec<crate::core::image::ImageEntry>,
+    pub scanner: crate::core::scan::ImageScanner,
 }
 
 impl gpui::EventEmitter<()> for AppState {}

@@ -58,7 +58,7 @@ impl Gallery {
             .iter()
             .find(|g| g.hash == group_hash)
             .expect("group should exist");
-        let segments = group_segments(&self.roots, &group.path);
+        let segments = group_segments(&self.library.roots, &group.path);
         let count = group.image_hashes.len();
         let is_collapsed = self.collapsed_groups.contains(&group_hash);
 
@@ -153,7 +153,7 @@ impl Gallery {
     /// Render a clickable tile with context menu and loading placeholder
     fn render_tile(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
         let size = px(self.tile_size);
-        let is_bookmarked = self.bookmarks.contains(hash);
+        let is_bookmarked = self.library.bookmarks.contains(hash);
         let is_selected = self.selected_hashes.contains(hash);
         let page = self.page;
 
@@ -358,7 +358,7 @@ impl Gallery {
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.view = View::Grouped;
-                                    this.refresh(cx);
+                                    this.reflow(cx);
                                 })),
                         )
                         .child(
@@ -368,7 +368,7 @@ impl Gallery {
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.view = View::Grid;
-                                    this.refresh(cx);
+                                    this.reflow(cx);
                                 })),
                         )
                         .child(
@@ -378,7 +378,7 @@ impl Gallery {
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.view = View::List;
-                                    this.refresh(cx);
+                                    this.reflow(cx);
                                 })),
                         ),
                 )
@@ -458,7 +458,7 @@ impl Gallery {
     /// Render the lightbox footer with position, name, size, and bookmark toggle
     fn render_info_bar(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = self.get_image_entry(hash).expect("image should exist");
-        let name = label_for(&self.roots, &entry.src_path);
+        let name = label_for(&self.library.roots, &entry.src_path);
         let bytes = format_bytes(entry.bytes);
 
         let position = self.get_visible_position(hash).map(|p| p + 1).unwrap_or(0);
@@ -791,7 +791,7 @@ impl Render for Gallery {
         // Check if tile size has changed by more than a sub-pixel threshold
         let tile_size_changed = (tile_size - self.tile_size).abs() > 0.5;
 
-        if (cols_changed || tile_size_changed) && !self.images.is_empty() {
+        if (cols_changed || tile_size_changed) && !self.library.images.is_empty() {
             self.set_layout(columns, tile_size, cx);
         }
 
@@ -822,6 +822,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_prev_page))
             .on_action(cx.listener(Self::on_next_page))
             .on_action(cx.listener(Self::on_toggle_collapse))
+            .on_action(cx.listener(Self::on_refresh))
             .relative()
             .size_full()
             .bg(cx.theme().background)
