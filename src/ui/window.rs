@@ -1,9 +1,8 @@
 use crate::ui::{
     gallery::Gallery,
     state::{AppState, SharedAppState},
-    *,
 };
-use gpui::{App, AppContext as _, KeyBinding, TitlebarOptions, WindowOptions};
+use gpui::{App, AppContext as _, TitlebarOptions, WindowOptions};
 use gpui_component::{Theme, ThemeMode};
 
 pub fn create_window(state: AppState) {
@@ -13,7 +12,7 @@ pub fn create_window(state: AppState) {
             gpui_component::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
 
-            register_actions(cx);
+            super::actions::register_actions(cx);
 
             let roots_str = state
                 .scanner
@@ -44,54 +43,4 @@ pub fn create_window(state: AppState) {
 
             cx.activate(true);
         });
-}
-
-fn register_actions(cx: &mut App) {
-    macro_rules! bind_keys {
-        ($context:expr, $(($key:expr, $action:expr)),* $(,)?) => {
-            cx.bind_keys([$( KeyBinding::new($key, $action, $context) ),*]);
-        };
-    }
-
-    cx.on_action(|_: &actions::Quit, cx| cx.quit());
-
-    // Global
-    bind_keys!(
-        None,
-        ("secondary-q", actions::Quit),
-        ("ctrl-shift-w", actions::Quit),
-        ("cmd-m", actions::Minimize)
-    );
-
-    // Gallery
-    bind_keys!(
-        Some(CONTEXT_GALLERY),
-        ("ctrl-tab", actions::NextPage),
-        ("ctrl-shift-tab", actions::PrevPage),
-        ("escape", actions::CloseLightbox),
-        ("secondary-k", actions::FocusSearch),
-        ("secondary-r", actions::Refresh),
-    );
-
-    // Gallery (unfocused)
-    bind_keys!(
-        Some(CONTEXT_GALLERY_UNFOCUSED),
-        ("up", actions::Up),
-        ("down", actions::Down),
-        ("left", actions::Left),
-        ("right", actions::Right),
-        ("secondary-up", actions::JumpToTop),
-        ("secondary-down", actions::JumpToBottom),
-        ("pageup", actions::JumpToTop),
-        ("pagedown", actions::JumpToBottom),
-        ("space", actions::OpenLightbox),
-        ("v", actions::SwitchView),
-        ("b", actions::Bookmark::Current),
-        ("k", actions::CopyPathToClipboard::Current),
-        ("o", actions::OpenInFinder::Current),
-        ("=", actions::ZoomIn),
-        ("-", actions::ZoomOut),
-        ("0", actions::ZoomReset),
-        ("c", actions::CollapseAll),
-    );
 }
