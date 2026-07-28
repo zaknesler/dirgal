@@ -1,19 +1,22 @@
-use crate::core::{
-    image::format_bytes,
-    path::{group_segments, label_for},
-    util::{self, file_manager_label},
-};
 use crate::ui::{
     gallery::{Gallery, constant::*},
     model::*,
     *,
+};
+use crate::{
+    assets::IconAsset,
+    core::{
+        image::format_bytes,
+        path::{group_segments, label_for},
+        util::{self, file_manager_label},
+    },
 };
 use gpui::{
     AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, ScrollWheelEvent,
     SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, IconName, InteractiveElementExt, Sizable as _,
+    ActiveTheme, Disableable, Icon, InteractiveElementExt, Sizable as _,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _, Toggle},
     h_flex,
@@ -80,9 +83,9 @@ impl Gallery {
                     .ghost()
                     .small()
                     .icon(if is_collapsed {
-                        IconName::ChevronRight
+                        IconAsset::ChevronRight
                     } else {
-                        IconName::ChevronDown
+                        IconAsset::ChevronDown
                     })
                     .text_color(cx.theme().muted_foreground)
                     .group_hover("header", |el| el.text_color(cx.theme().foreground))
@@ -228,28 +231,28 @@ impl Gallery {
                     "Bookmark"
                 },
                 if is_bookmarked {
-                    IconName::HeartOff
+                    IconAsset::BookmarkOff
                 } else {
-                    IconName::Heart
+                    IconAsset::Bookmark
                 },
                 Box::new(actions::Bookmark::Thumb(hash)),
             )
             .menu_with_icon(
                 "Copy full path",
-                IconName::Copy,
+                IconAsset::Copy,
                 Box::new(actions::CopyPathToClipboard::Thumb(hash)),
             )
             .separator()
             .when(page != Page::Gallery, |menu| {
                 menu.menu_with_icon(
                     "Reveal in gallery",
-                    IconName::GalleryVerticalEnd,
+                    IconAsset::Grid,
                     Box::new(actions::RevealInGallery(hash)),
                 )
             })
             .menu_with_icon(
                 format!("Open in {}", file_manager_label().to_lowercase()),
-                IconName::FolderOpen,
+                IconAsset::FolderOpen,
                 Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
             )
     }
@@ -290,7 +293,7 @@ impl Gallery {
                         .child(
                             div()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(icon.clone()),
+                                .child(Icon::new(icon.clone())),
                         )
                         .child(*name),
                 )
@@ -352,7 +355,7 @@ impl Gallery {
                         .gap_1()
                         .child(
                             Toggle::new(View::Grouped)
-                                .icon(IconName::Folder)
+                                .icon(IconAsset::Folder)
                                 .checked(self.view == View::Grouped)
                                 .disabled(!is_groupable)
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -363,7 +366,7 @@ impl Gallery {
                         )
                         .child(
                             Toggle::new(View::Grid)
-                                .icon(IconName::LayoutDashboard)
+                                .icon(IconAsset::Grid)
                                 .checked(self.view == View::Grid)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
@@ -373,7 +376,7 @@ impl Gallery {
                         )
                         .child(
                             Toggle::new(View::List)
-                                .icon(IconName::GalleryVerticalEnd)
+                                .icon(IconAsset::LayoutList)
                                 .checked(self.view == View::List)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
@@ -397,9 +400,9 @@ impl Gallery {
                                 .ghost()
                                 .small()
                                 .icon(if sort_ascending {
-                                    IconName::SortAscending
+                                    IconAsset::SortAscending
                                 } else {
-                                    IconName::SortDescending
+                                    IconAsset::SortDescending
                                 })
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
@@ -416,7 +419,7 @@ impl Gallery {
                             Button::new("grid-zoom-out")
                                 .ghost()
                                 .small()
-                                .icon(IconName::Minus)
+                                .icon(IconAsset::Minus)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.zoom_grid_out(cx);
@@ -426,7 +429,7 @@ impl Gallery {
                             Button::new("grid-zoom-in")
                                 .ghost()
                                 .small()
-                                .icon(IconName::Plus)
+                                .icon(IconAsset::Plus)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.zoom_grid_in(cx);
@@ -506,7 +509,7 @@ impl Gallery {
                 .child(
                     Button::new("copy-path")
                         .ghost()
-                        .icon(IconName::Copy)
+                        .icon(IconAsset::Copy)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
                             this.copy_path_to_clipboard(&hash, cx);
@@ -516,9 +519,9 @@ impl Gallery {
                     Button::new("bookmark")
                         .ghost()
                         .icon(if is_bookmarked {
-                            IconName::HeartOff
+                            IconAsset::BookmarkOff
                         } else {
-                            IconName::Heart
+                            IconAsset::Bookmark
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
@@ -579,7 +582,7 @@ impl Gallery {
                 .large()
                 .px_4()
                 .py_8()
-                .icon(IconName::ChevronLeft)
+                .icon(IconAsset::ChevronLeft)
                 .on_click(cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
                     this.step(-1, cx);
@@ -592,7 +595,7 @@ impl Gallery {
                 .large()
                 .px_4()
                 .py_8()
-                .icon(IconName::ChevronRight)
+                .icon(IconAsset::ChevronRight)
                 .on_click(cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
                     this.step(1, cx);

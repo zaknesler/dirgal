@@ -1,5 +1,5 @@
+use crate::assets::IconAsset;
 use gpui::ElementId;
-use gpui_component::IconName;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -61,10 +61,10 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [(Page, &'static str, IconName); 3] = [
-        (Page::Gallery, "Gallery", IconName::GalleryVerticalEnd),
-        (Page::Bookmarks, "Bookmarks", IconName::Heart),
-        (Page::Duplicates, "Duplicates", IconName::Copy),
+    pub const ALL: [(Page, &'static str, IconAsset); 3] = [
+        (Page::Gallery, "Gallery", IconAsset::Grid),
+        (Page::Bookmarks, "Bookmarks", IconAsset::Bookmark),
+        (Page::Duplicates, "Duplicates", IconAsset::Layers),
     ];
 
     /// Get the default view for the page

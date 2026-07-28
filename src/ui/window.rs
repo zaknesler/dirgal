@@ -7,7 +7,7 @@ use gpui_component::{Theme, ThemeMode};
 
 pub fn create_window(state: AppState) {
     gpui_platform::application()
-        .with_assets(gpui_component_assets::Assets)
+        .with_assets(crate::assets::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);

@@ -11,6 +11,9 @@ pub enum AppError {
     #[error("Config file not found")]
     ConfigFileNotFound,
 
+    #[error("Asset not found: {0}")]
+    AssetNotFound(String),
+
     #[error(transparent)]
     ImageDecode(#[from] image::ImageError),
 

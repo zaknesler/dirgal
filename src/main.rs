@@ -3,6 +3,7 @@
 use crate::core::{config::AppConfig, path, pipeline, scan::ImageScanner};
 use clap::Parser as _;
 
+mod assets;
 mod cli;
 mod core;
 mod error;

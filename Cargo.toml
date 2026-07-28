@@ -29,6 +29,7 @@ rust-embed = "8.11.0"
 schemars = "1.2.1"
 seahash = "4.1.0"
 serde = { version = "1.0.228", features = ["derive"] }
+strum = { version = "0.28.0", features = ["derive"] }
 thiserror = "2.0.18"
 toml = "1.1.2"
 tracing = "0.1.44"
@@ -56,9 +57,3 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
-
-# For some reason lsp-types doesn't compile at opt-level 3
-[profile.dev.package.lsp-types]
-opt-level = 2
-[profile.release.package.lsp-types]
-opt-level = 2
