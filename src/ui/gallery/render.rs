@@ -324,14 +324,24 @@ impl Gallery {
         let search = || {
             h_flex()
                 .flex_1()
-                .gap_4()
+                .gap_2()
                 .items_center()
+                .w_full()
                 .child(
-                    div()
+                    Input::new(&self.input)
+                        .cleanable(true)
+                        .flex_1()
                         .min_w_0()
-                        .max_w(px(400.))
-                        .w_full()
-                        .child(Input::new(&self.input).cleanable(true).flex_1()),
+                        .max_w(px(400.)),
+                )
+                .child(
+                    Button::new("refresh")
+                        .ghost()
+                        .icon(IconAsset::Refresh)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.refresh_library(cx);
+                        })),
                 )
                 .child(
                     div()
@@ -389,16 +399,11 @@ impl Gallery {
                     h_flex()
                         .flex_none()
                         .items_center()
-                        .gap_px()
-                        .child(
-                            div()
-                                .w(px(150.))
-                                .child(Select::new(&self.sort_select).small()),
-                        )
+                        .gap_1()
+                        .child(div().w(px(175.)).child(Select::new(&self.sort_select)))
                         .child(
                             Button::new("sort-direction")
                                 .ghost()
-                                .small()
                                 .icon(if sort_ascending {
                                     IconAsset::SortAscending
                                 } else {
@@ -414,11 +419,10 @@ impl Gallery {
                     h_flex()
                         .flex_none()
                         .items_center()
-                        .gap_px()
+                        .gap_1()
                         .child(
                             Button::new("grid-zoom-out")
                                 .ghost()
-                                .small()
                                 .icon(IconAsset::Minus)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
@@ -428,7 +432,6 @@ impl Gallery {
                         .child(
                             Button::new("grid-zoom-in")
                                 .ghost()
-                                .small()
                                 .icon(IconAsset::Plus)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
