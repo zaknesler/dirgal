@@ -106,9 +106,11 @@ impl Gallery {
         // Create a grid that is sized to show all of the items upon first load
         let grid = ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all();
 
+        let page = Page::Gallery;
+
         let mut this = Self {
             state,
-            page: Page::Gallery,
+            page,
             focus_handle,
             input,
             input_focus_handle,
@@ -121,7 +123,7 @@ impl Gallery {
             groups: Vec::new(),
             collapsed_groups: HashSet::new(),
             grid,
-            view: View::Grouped,
+            view: page.default_view(),
             tile_size: GRID_TILE_MIN,
             num_columns: 1,
             column_override: None,
