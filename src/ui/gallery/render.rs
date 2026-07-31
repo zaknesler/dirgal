@@ -364,6 +364,16 @@ impl Gallery {
                         .items_center()
                         .gap_1()
                         .child(
+                            Toggle::new(View::Grid)
+                                .icon(IconAsset::Grid)
+                                .checked(self.view == View::Grid)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.view = View::Grid;
+                                    this.reflow(cx);
+                                })),
+                        )
+                        .child(
                             Toggle::new(View::Grouped)
                                 .icon(IconAsset::Folder)
                                 .checked(self.view == View::Grouped)
@@ -371,16 +381,6 @@ impl Gallery {
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.view = View::Grouped;
-                                    this.reflow(cx);
-                                })),
-                        )
-                        .child(
-                            Toggle::new(View::Grid)
-                                .icon(IconAsset::Grid)
-                                .checked(self.view == View::Grid)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.view = View::Grid;
                                     this.reflow(cx);
                                 })),
                         )

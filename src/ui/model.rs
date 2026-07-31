@@ -70,7 +70,7 @@ impl Page {
     /// Get the default view for the page
     pub fn default_view(&self) -> View {
         match self {
-            Self::Gallery => View::Grouped,
+            Self::Gallery => View::Grid,
             Self::Bookmarks => View::Grid,
             Self::Duplicates => View::Grid,
         }
