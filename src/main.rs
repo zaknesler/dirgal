@@ -19,7 +19,7 @@ fn main() -> error::AppResult<()> {
     let roots = path::get_roots(args.paths);
     let thumb_dir = path::get_thumbnail_dir();
 
-    if args.purge {
+    if args.purge_thumbs {
         pipeline::purge_thumbnails(&thumb_dir);
         return Ok(());
     }
@@ -31,7 +31,7 @@ fn main() -> error::AppResult<()> {
 
     let scanner = ImageScanner::scan(roots, thumb_dir)?;
 
-    if args.prefetch {
+    if args.generate_thumbs {
         scanner.generate_thumbnails()?;
     }
 
