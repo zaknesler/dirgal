@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use crate::core::{config::AppConfig, path, pipeline, scan::ImageScanner};
+use crate::core::{config::AppConfig, path, pipeline, scan::ImageScanner, store::Store};
 use clap::Parser as _;
 
 mod assets;
@@ -21,6 +21,11 @@ fn main() -> error::AppResult<()> {
 
     if args.purge {
         pipeline::purge_thumbnails(&thumb_dir);
+        return Ok(());
+    }
+
+    if args.clear_cache {
+        Store::clear_cache()?;
         return Ok(());
     }
 

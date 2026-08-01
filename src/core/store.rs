@@ -7,7 +7,8 @@ use std::{
 };
 
 const PROJECT_DIR: &str = "dirgal";
-const STORE_FILE_NAME: &str = "store";
+const CACHE_FILE_NAME: &str = "cache";
+const BOOKMARKS_FILE_NAME: &str = "bookmarks";
 const STORE_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -18,94 +19,140 @@ pub struct HashCacheEntry {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct StoreFile {
+struct CacheFile {
     version: u32,
     entries: HashMap<PathBuf, HashCacheEntry>,
-    #[serde(default)]
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct BookmarksFile {
+    version: u32,
     bookmarks: Vec<u64>,
 }
 
-/// Global cache of hashed image entries and bookmarks, independent of which roots are open
 #[derive(Debug, Default)]
 pub struct Store {
-    entries: HashMap<PathBuf, HashCacheEntry>,
+    cache: HashMap<PathBuf, HashCacheEntry>,
     pub bookmarks: Vec<u64>,
 }
 
 impl Store {
-    /// Load the store file, or an empty store if it doesn't exist yet
+    /// Load the cache and bookmarks files
     pub fn load() -> Self {
-        let Ok(path) = Self::path() else {
-            return Self::default();
-        };
-
-        let Ok(bytes) = std::fs::read(&path) else {
-            return Self::default();
-        };
-
-        let Ok(store) = postcard::from_bytes::<StoreFile>(&bytes) else {
-            tracing::warn!(path = %path.display(), "failed to decode store file, ignoring");
-            return Self::default();
-        };
-
-        // Probably won't happen, but might as well ensure the store version matches the current format
-        if store.version != STORE_VERSION {
-            return Self::default();
-        }
-
         Self {
-            entries: store.entries,
-            bookmarks: store.bookmarks,
+            cache: Self::load_cache(),
+            bookmarks: Self::load_bookmarks(),
         }
     }
 
     /// Look up a cached hash for the given path, valid only if the size and mtime still match
     pub fn get(&self, path: &Path, size: u64, modified: Option<SystemTime>) -> Option<u64> {
         let mtime = to_epoch_secs(modified?)?;
-        let entry = self.entries.get(path)?;
+        let entry = self.cache.get(path)?;
 
         (entry.size == size && entry.mtime == mtime).then_some(entry.hash)
     }
 
     /// Merge newly-computed entries in, overwriting any existing entry at the same path
     pub fn merge_entries(&mut self, entries: HashMap<PathBuf, HashCacheEntry>) {
-        self.entries.extend(entries);
+        self.cache.extend(entries);
     }
 
-    /// Write the store back out to disk
+    /// Write the cache entries back out to disk
     pub fn save(&self) -> AppResult<()> {
-        let path = Self::path()?;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+        let file = CacheFile {
+            version: STORE_VERSION,
+            entries: self.cache.clone(),
+        };
+
+        write_file(Self::cache_path()?, &file)
+    }
+
+    /// Overwrite the bookmarks file with the given bookmarks
+    pub fn save_bookmarks(bookmarks: &[u64]) -> AppResult<()> {
+        let file = BookmarksFile {
+            version: STORE_VERSION,
+            bookmarks: bookmarks.to_vec(),
+        };
+
+        write_file(Self::bookmarks_path()?, &file)
+    }
+
+    /// Clear all cached hash entries, leaving bookmarks untouched
+    pub fn clear_cache() -> AppResult<()> {
+        write_file(Self::cache_path()?, &CacheFile::default())
+    }
+
+    /// Load the cache file, defaulting to empty if it doesn't exist
+    fn load_cache() -> HashMap<PathBuf, HashCacheEntry> {
+        let Ok(path) = Self::cache_path() else {
+            return HashMap::new();
+        };
+
+        let Ok(bytes) = std::fs::read(&path) else {
+            return HashMap::new();
+        };
+
+        let Ok(file) = postcard::from_bytes::<CacheFile>(&bytes) else {
+            tracing::warn!(path = %path.display(), "failed to decode cache file, ignoring");
+            return HashMap::new();
+        };
+
+        if file.version != STORE_VERSION {
+            return HashMap::new();
         }
 
-        let file = StoreFile {
-            version: STORE_VERSION,
-            entries: self.entries.clone(),
-            bookmarks: self.bookmarks.clone(),
+        file.entries
+    }
+
+    fn load_bookmarks() -> Vec<u64> {
+        let Ok(path) = Self::bookmarks_path() else {
+            return Vec::new();
         };
-        let bytes = postcard::to_allocvec(&file)?;
 
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, &path)?;
+        let Ok(bytes) = std::fs::read(&path) else {
+            return Vec::new();
+        };
 
-        Ok(())
+        let Ok(file) = postcard::from_bytes::<BookmarksFile>(&bytes) else {
+            tracing::warn!(path = %path.display(), "failed to decode bookmarks file, ignoring");
+            return Vec::new();
+        };
+
+        if file.version != STORE_VERSION {
+            return Vec::new();
+        }
+
+        file.bookmarks
     }
 
-    /// Load the store, replace its bookmarks, and save it back out
-    pub fn save_bookmarks(bookmarks: &[u64]) -> AppResult<()> {
-        let mut store = Self::load();
-        store.bookmarks = bookmarks.to_vec();
-        store.save()
+    fn cache_path() -> AppResult<PathBuf> {
+        Ok(Self::data_dir()?.join(CACHE_FILE_NAME))
     }
 
-    /// Path to the store file in the app's data directory
-    fn path() -> AppResult<PathBuf> {
+    fn bookmarks_path() -> AppResult<PathBuf> {
+        Ok(Self::data_dir()?.join(BOOKMARKS_FILE_NAME))
+    }
+
+    fn data_dir() -> AppResult<PathBuf> {
         directories::ProjectDirs::from("", "", PROJECT_DIR)
-            .map(|dirs| dirs.data_dir().join(STORE_FILE_NAME))
+            .map(|dirs| dirs.data_dir().to_path_buf())
             .ok_or(AppError::ConfigDirNotFound)
     }
+}
+
+fn write_file<T: Serialize>(path: PathBuf, value: &T) -> AppResult<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+
+    // Write to temp file first to prevent corruption
+    let bytes = postcard::to_allocvec(value)?;
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, &path)?;
+
+    Ok(())
 }
 
 fn to_epoch_secs(time: SystemTime) -> Option<u64> {

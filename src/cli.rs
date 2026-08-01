@@ -15,6 +15,10 @@ pub struct Args {
     #[clap(long)]
     pub purge: bool,
 
+    /// Clear cached hash entries from the store, keeping bookmarks intact
+    #[clap(long)]
+    pub clear_cache: bool,
+
     /// Pre-generate thumbnails before opening
     #[clap(long)]
     pub prefetch: bool,
