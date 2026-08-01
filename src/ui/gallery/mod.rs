@@ -74,7 +74,11 @@ impl Gallery {
         })
         .detach();
 
-        let sort = Sort::default();
+        let config = state.read(cx).config.clone();
+        let sort = Sort {
+            key: config.sort_key,
+            ascending: config.sort_direction == SortDirection::Asc,
+        };
 
         let num_concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -107,7 +111,7 @@ impl Gallery {
         // Create a grid that is sized to show all of the items upon first load
         let grid = ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all();
 
-        let page = Page::Gallery;
+        let page = config.page;
 
         let mut this = Self {
             state,
@@ -124,7 +128,7 @@ impl Gallery {
             groups: Vec::new(),
             collapsed_groups: HashSet::new(),
             grid,
-            view: page.default_view(),
+            view: config.view,
             tile_size: GRID_TILE_MIN,
             num_columns: 1,
             column_override: None,

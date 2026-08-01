@@ -16,7 +16,16 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 struct StubAssetDir;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct AppConfig {}
+pub struct AppConfig {
+    #[serde(default)]
+    pub sort_key: crate::ui::model::SortKey,
+    #[serde(default)]
+    pub sort_direction: crate::ui::model::SortDirection,
+    #[serde(default)]
+    pub view: crate::ui::model::View,
+    #[serde(default)]
+    pub page: crate::ui::model::Page,
+}
 
 impl AppConfig {
     /// Load the config from disk with an optional override path

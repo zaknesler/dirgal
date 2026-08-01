@@ -1,1 +1,11 @@
-bookmarks = []
+# name | modified | created | size | date-in-path
+sort_key = "name"
+
+# asc | desc
+sort_direction = "asc"
+
+# grid | list | grouped
+view = "grid"
+
+# gallery | bookmarks | duplicates
+page = "gallery"

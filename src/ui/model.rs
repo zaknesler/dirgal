@@ -10,7 +10,8 @@ pub struct ImageHash(pub u64);
 pub struct GroupHash(pub u64);
 
 /// Key by which images are ordered
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum SortKey {
     #[default]
     Name,
@@ -37,6 +38,21 @@ impl SortKey {
     }
 }
 
+/// Direction in which images are ordered
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SortDirection {
+    #[default]
+    Asc,
+    Desc,
+}
+
+impl From<bool> for SortDirection {
+    fn from(ascending: bool) -> Self {
+        if ascending { Self::Asc } else { Self::Desc }
+    }
+}
+
 /// How images are ordered
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Sort {
@@ -53,8 +69,10 @@ impl Default for Sort {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Page {
+    #[default]
     Gallery,
     Bookmarks,
     Duplicates,
@@ -117,9 +135,11 @@ pub enum ThumbState {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum View {
     Grouped,
+    #[default]
     Grid,
     List,
 }
