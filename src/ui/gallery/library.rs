@@ -42,7 +42,7 @@ impl Library {
             .map(|(i, e)| (ImageHash(e.hash), i))
             .collect();
 
-        let bookmarks = crate::core::image::resolve_bookmarks(&state.config.bookmarks, &images);
+        let bookmarks = crate::core::image::resolve_bookmarks(&state.scanner.bookmarks, &images);
 
         Self {
             roots: state.scanner.roots,

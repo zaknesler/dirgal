@@ -11,13 +11,17 @@ pub struct Args {
     #[clap(long, short)]
     pub config: Option<String>,
 
-    /// Delete all thumbnail images from the cache
+    /// Clear caches image hashes (does not affect bookmarks)
     #[clap(long)]
-    pub purge: bool,
+    pub clear_cache: bool,
 
-    /// Pre-generate thumbnails before opening
+    /// Pre-generate all thumbnails before opening
     #[clap(long)]
-    pub prefetch: bool,
+    pub generate_thumbs: bool,
+
+    /// Delete all cached thumbnail images
+    #[clap(long)]
+    pub purge_thumbs: bool,
 
     /// Paths to include in the gallery
     #[clap(trailing_var_arg = true)]

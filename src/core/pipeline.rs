@@ -1,8 +1,8 @@
 use crate::{
     core::{
-        cache::{HashCache, HashCacheEntry},
         hash::{hash_content, hash_path},
         image::{self, FoundFile, ImageEntry, SMALL_FILE_BYTES},
+        store::{HashCacheEntry, Store},
     },
     error::AppResult,
 };
@@ -17,6 +17,11 @@ use std::{
 };
 
 const UPDATE_DURATION_MS: u64 = 80;
+
+pub struct DiscoveredImages {
+    pub images: Vec<ImageEntry>,
+    pub bookmarks: Vec<u64>,
+}
 
 /// Recursively scan the given roots for image files, reporting progress as directories are visited and images discovered
 pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
@@ -84,8 +89,7 @@ pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
 pub fn build_image_entries(
     found: Vec<FoundFile>,
     thumb_dir: &std::path::Path,
-    roots: &[PathBuf],
-) -> AppResult<Vec<ImageEntry>> {
+) -> AppResult<DiscoveredImages> {
     let bar = ProgressBar::new(found.len() as u64);
     bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
     bar.set_style(
@@ -96,13 +100,13 @@ pub fn build_image_entries(
     );
     bar.set_message(format!("hashing {} image(s)", found.len()));
 
-    let cache = HashCache::load(roots);
+    let mut store = Store::load();
 
     let images = found
         .into_par_iter()
         .progress_with(bar.clone())
         .map(|f| {
-            let hash = resolve_hash(&f, &cache);
+            let hash = resolve_hash(&f, &store);
             ImageEntry::new(f, thumb_dir, hash)
         })
         .collect::<Vec<ImageEntry>>();
@@ -128,16 +132,21 @@ pub fn build_image_entries(
         })
         .collect::<HashMap<PathBuf, HashCacheEntry>>();
 
-    if let Err(err) = HashCache::save(roots, &entries) {
-        tracing::warn!(error = %err, "failed to write cache file(s)");
+    store.merge_entries(entries);
+
+    if let Err(err) = store.save() {
+        tracing::warn!(error = %err, "failed to write store file");
     }
 
-    Ok(images)
+    Ok(DiscoveredImages {
+        images,
+        bookmarks: store.bookmarks,
+    })
 }
 
 /// Resolve the content hash for a found file, reusing the cached value if possible, otherwise hashing from scratch
-fn resolve_hash(file: &FoundFile, cache: &HashCache) -> u64 {
-    if let Some(hash) = cache.get(&file.path, file.bytes, file.modified) {
+fn resolve_hash(file: &FoundFile, store: &Store) -> u64 {
+    if let Some(hash) = store.get(&file.path, file.bytes, file.modified) {
         return hash;
     }
 

@@ -1,6 +1,7 @@
 use crate::core::{
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES},
+    store::Store,
     util::{self},
 };
 use crate::ui::{gallery::constant::*, model::*, *};
@@ -169,7 +170,7 @@ impl Gallery {
         }
         self.sort = sort;
 
-        let bookmarks = self.state.read(cx).config.bookmarks.clone();
+        let bookmarks = self.state.read(cx).scanner.bookmarks.clone();
         self.library.resort(sort, &bookmarks);
 
         self.reflow(cx);
@@ -188,9 +189,8 @@ impl Gallery {
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
     fn switch_view(&mut self, cx: &mut Context<Self>) {
         self.view = match self.view {
-            View::Grouped => View::Grid,
-            View::Grid => View::List,
-            View::List if self.is_groupable(cx) => View::Grouped,
+            View::Grid if self.is_groupable(cx) => View::Grouped,
+            View::Grid | View::Grouped => View::List,
             View::List => View::Grid,
         };
 
@@ -730,34 +730,35 @@ impl Gallery {
         self.reflow(cx);
     }
 
-    /// Sync bookmarks into the shared config and save it to disk
+    /// Sync bookmarks into the shared scanner state and persist to the store file
     fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
         let current: HashSet<u64> = self.library.bookmarks.iter().map(|hash| hash.0).collect();
         let loaded: HashSet<u64> = self.library.images.iter().map(|image| image.hash).collect();
 
-        // Merge into config, only touching loaded hashes to retain directories' bookmark
+        // Merge into scanner state, only touching loaded hashes to retain other directories' bookmarks
         self.state.update(cx, |state, _cx| {
             state
-                .config
+                .scanner
                 .bookmarks
                 .retain(|h| !loaded.contains(h) || current.contains(h));
 
             for hash in &self.library.bookmarks {
-                if !state.config.bookmarks.contains(&hash.0) {
-                    state.config.bookmarks.push(hash.0);
+                if !state.scanner.bookmarks.contains(&hash.0) {
+                    state.scanner.bookmarks.push(hash.0);
                 }
             }
         });
 
         self.library.bookmarks = crate::core::image::resolve_bookmarks(
-            &self.state.read(cx).config.bookmarks,
+            &self.state.read(cx).scanner.bookmarks,
             &self.library.images,
         );
 
         cx.notify();
 
-        if let Err(e) = self.state.read(cx).config.save() {
-            tracing::warn!(error = %e, "failed to save bookmarks to config");
+        let bookmarks: Vec<u64> = self.library.bookmarks.iter().map(|hash| hash.0).collect();
+        if let Err(e) = Store::save_bookmarks(&bookmarks) {
+            tracing::warn!(error = %e, "failed to save bookmarks to store");
         }
     }
 

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::error::{AppError, AppResult};
 use figment::{
     Figment,
@@ -14,10 +16,7 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 struct StubAssetDir;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct AppConfig {
-    #[serde(default, with = "hex_u64_vec")]
-    pub bookmarks: Vec<u64>,
-}
+pub struct AppConfig {}
 
 impl AppConfig {
     /// Load the config from disk with an optional override path
@@ -91,27 +90,4 @@ impl AppConfig {
 
         Ok(dir)
     }
-}
-
-mod hex_u64_vec {
-    use serde::{Deserializer, Serializer, de::Error as _};
-
-    pub fn serialize<S: Serializer>(v: &Vec<u64>, s: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeSeq;
-        let mut seq = s.serialize_seq(Some(v.len()))?;
-        for &n in v {
-            seq.serialize_element(&format!("{:016x}", n))?;
-        }
-        seq.end()
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u64>, D::Error> {
-        let strings = <Vec<String>>::deserialize(d)?;
-        strings
-            .iter()
-            .map(|s| u64::from_str_radix(s, 16).map_err(D::Error::custom))
-            .collect()
-    }
-
-    use serde::Deserialize;
 }

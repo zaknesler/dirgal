@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use crate::core::{config::AppConfig, path, pipeline, scan::ImageScanner};
+use crate::core::{config::AppConfig, path, pipeline, scan::ImageScanner, store::Store};
 use clap::Parser as _;
 
 mod assets;
@@ -19,14 +19,19 @@ fn main() -> error::AppResult<()> {
     let roots = path::get_roots(args.paths);
     let thumb_dir = path::get_thumbnail_dir();
 
-    if args.purge {
+    if args.purge_thumbs {
         pipeline::purge_thumbnails(&thumb_dir);
+        return Ok(());
+    }
+
+    if args.clear_cache {
+        Store::clear_cache()?;
         return Ok(());
     }
 
     let scanner = ImageScanner::scan(roots, thumb_dir)?;
 
-    if args.prefetch {
+    if args.generate_thumbs {
         scanner.generate_thumbnails()?;
     }
 
