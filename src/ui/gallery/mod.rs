@@ -189,9 +189,8 @@ impl Gallery {
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
     fn switch_view(&mut self, cx: &mut Context<Self>) {
         self.view = match self.view {
-            View::Grouped => View::Grid,
-            View::Grid => View::List,
-            View::List if self.is_groupable(cx) => View::Grouped,
+            View::Grid if self.is_groupable(cx) => View::Grouped,
+            View::Grid | View::Grouped => View::List,
             View::List => View::Grid,
         };
 
