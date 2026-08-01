@@ -1,5 +1,6 @@
 use gpui::AppContext as _;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub config: crate::core::config::AppConfig,
