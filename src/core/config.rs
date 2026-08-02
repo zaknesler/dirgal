@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::error::{AppError, AppResult};
 use figment::{
     Figment,
@@ -50,15 +48,6 @@ impl AppConfig {
         }
 
         Ok(config.extract()?)
-    }
-
-    /// Save the config to disk
-    pub fn save(&self) -> AppResult<()> {
-        let dir = Self::get_dir()?;
-        let contents = toml::to_string_pretty(self)?;
-        fs::write(dir.join(CONFIG_FILE_NAME), contents)?;
-
-        Ok(())
     }
 
     /// Get the default data for the config file
