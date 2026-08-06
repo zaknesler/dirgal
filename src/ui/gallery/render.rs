@@ -140,14 +140,21 @@ impl Gallery {
             .into_any_element()
     }
 
-    fn render_thumb(&self, hash: &ImageHash) -> AnyElement {
+    fn render_thumb(&self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
         let source = self.peek_thumb_path(hash);
+
+        let object_fit = match self.state.read(cx).config.thumbnail_fit {
+            ThumbnailFit::Fill => ObjectFit::Fill,
+            ThumbnailFit::Cover => ObjectFit::Cover,
+            ThumbnailFit::Contain => ObjectFit::Contain,
+            ThumbnailFit::ScaleDown => ObjectFit::ScaleDown,
+        };
 
         match source {
             Some(path) => img(path)
                 .size_full()
                 .overflow_hidden()
-                .object_fit(ObjectFit::Cover)
+                .object_fit(object_fit)
                 .into_any_element(),
             None => Self::render_thumb_placeholder().into_any_element(),
         }
@@ -197,7 +204,7 @@ impl Gallery {
             .context_menu(move |menu, _, _| {
                 Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
             })
-            .map(|tile| tile.relative().child(self.render_thumb(&hash)))
+            .map(|tile| tile.relative().child(self.render_thumb(&hash, cx)))
             .when(DEBUG, |el| {
                 el.child(
                     div()
@@ -703,7 +710,7 @@ impl Gallery {
                         for index in range {
                             let hash = this.filtered_images[index];
                             let image = this.get_image_entry(&hash).expect("image should exist");
-                            let thumb = this.render_thumb(&hash);
+                            let thumb = this.render_thumb(&hash, cx);
 
                             items.push(
                                 h_flex()
