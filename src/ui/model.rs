@@ -157,29 +157,23 @@ impl From<View> for ElementId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThumbnailFit {
-    /// The image will be stretched to fill the bounds of the element.
-    Fill,
-    /// The image will be scaled to fit within the bounds of the element.
-    Contain,
     /// The image will be scaled to cover the bounds of the element.
     #[default]
     Cover,
-    /// The image will be scaled down to fit within the bounds of the element.
-    ScaleDown,
+    /// The image will be scaled to fit within the bounds of the element.
+    Contain,
 }
 
-impl ThumbnailFit {
-    pub const ALL: [(ThumbnailFit, &'static str); 4] = [
-        (ThumbnailFit::Fill, "Fill"),
-        (ThumbnailFit::Contain, "Contain"),
-        (ThumbnailFit::Cover, "Cover"),
-        (ThumbnailFit::ScaleDown, "Scale down"),
-    ];
+// impl ThumbnailFit {
+//     pub const ALL: [(ThumbnailFit, &'static str); 2] = [
+//         (ThumbnailFit::Cover, "Cover"),
+//         (ThumbnailFit::Contain, "Contain"),
+//     ];
 
-    pub fn index(&self) -> usize {
-        Self::ALL
-            .iter()
-            .position(|(k, _)| k == self)
-            .expect("thumbnail fit option should exist")
-    }
-}
+//     pub fn index(&self) -> usize {
+//         Self::ALL
+//             .iter()
+//             .position(|(k, _)| k == self)
+//             .expect("thumbnail fit option should exist")
+//     }
+// }

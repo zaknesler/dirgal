@@ -12,11 +12,11 @@ use crate::{
     },
 };
 use gpui::{
-    AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, ScrollWheelEvent,
-    SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
+    AnyElement, App, Context, Corners, FocusHandle, Focusable, MouseDownEvent, ObjectFit,
+    ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, InteractiveElementExt, Sizable as _,
+    ActiveTheme, Disableable, Icon, InteractiveElementExt, Sizable as _, StyledExt,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _, Toggle},
     h_flex,
@@ -140,20 +140,17 @@ impl Gallery {
             .into_any_element()
     }
 
-    fn render_thumb(&self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
+    fn render_thumb(&self, hash: &ImageHash, _: &mut Context<Self>) -> AnyElement {
         let source = self.peek_thumb_path(hash);
 
-        let object_fit = match self.state.read(cx).config.thumbnail_fit {
-            ThumbnailFit::Fill => ObjectFit::Fill,
+        let object_fit = match self.thumbnail_fit {
             ThumbnailFit::Cover => ObjectFit::Cover,
             ThumbnailFit::Contain => ObjectFit::Contain,
-            ThumbnailFit::ScaleDown => ObjectFit::ScaleDown,
         };
 
         match source {
             Some(path) => img(path)
                 .size_full()
-                .overflow_hidden()
                 .object_fit(object_fit)
                 .into_any_element(),
             None => Self::render_thumb_placeholder().into_any_element(),
@@ -181,6 +178,7 @@ impl Gallery {
             .flex_none()
             .size(size)
             .overflow_hidden()
+            .aspect_square()
             .relative()
             .border_3()
             .border_color(gpui::transparent_black())
@@ -204,7 +202,13 @@ impl Gallery {
             .context_menu(move |menu, _, _| {
                 Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
             })
-            .map(|tile| tile.relative().child(self.render_thumb(&hash, cx)))
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .aspect_square()
+                    .child(self.render_thumb(&hash, cx)),
+            )
             .when(DEBUG, |el| {
                 el.child(
                     div()
@@ -819,7 +823,8 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_left))
             .on_action(cx.listener(Self::on_right))
             .on_action(cx.listener(Self::on_open_lightbox))
-            .on_action(cx.listener(Self::on_switch_view))
+            .on_action(cx.listener(Self::on_togle_view))
+            .on_action(cx.listener(Self::on_toggle_thumbnail_fit))
             .on_action(cx.listener(Self::on_close))
             .on_action(cx.listener(Self::on_minimize))
             .on_action(cx.listener(Self::on_zoom_in))
