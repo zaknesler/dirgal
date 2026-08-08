@@ -12,11 +12,11 @@ use crate::{
     },
 };
 use gpui::{
-    AnyElement, App, Context, Corners, FocusHandle, Focusable, MouseDownEvent, ObjectFit,
-    ScrollWheelEvent, SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
+    AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, ScrollWheelEvent,
+    SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, InteractiveElementExt, Sizable as _, StyledExt,
+    ActiveTheme, Disableable, Icon, InteractiveElementExt, Sizable as _,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _, Toggle},
     h_flex,
@@ -150,6 +150,7 @@ impl Gallery {
 
         match source {
             Some(path) => img(path)
+                .aspect_square()
                 .size_full()
                 .object_fit(object_fit)
                 .into_any_element(),
