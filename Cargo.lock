@@ -1117,7 +1117,7 @@ dependencies = [
 [[package]]
 name = "collections"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "gpui_util",
  "indexmap",
@@ -1499,7 +1499,7 @@ dependencies = [
 [[package]]
 name = "derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2420,7 +2420,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2447,7 +2447,7 @@ dependencies = [
  "futures",
  "futures-concurrency",
  "getrandom 0.3.4",
- "gpui_macros 0.1.0 (git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding)",
+ "gpui_macros",
  "gpui_shared_string",
  "gpui_util",
  "heapless 0.9.3",
@@ -2504,7 +2504,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.5.2"
-source = "git+https://github.com/longbridge/gpui-component#6d7847e33ef3b8e043d1fcea82eb7e1b7f919d8b"
+source = "git+https://github.com/longbridge/gpui-component#04cc6eb25aa66bafa718bebea71dc5a933d26288"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2516,7 +2516,7 @@ dependencies = [
  "gpui",
  "gpui-component-assets",
  "gpui-component-macros",
- "gpui_macros 0.1.0 (git+https://github.com/zed-industries/zed)",
+ "gpui_macros",
  "html5ever",
  "instant",
  "itertools 0.13.0",
@@ -2552,7 +2552,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-assets"
 version = "0.5.1"
-source = "git+https://github.com/longbridge/gpui-component#6d7847e33ef3b8e043d1fcea82eb7e1b7f919d8b"
+source = "git+https://github.com/longbridge/gpui-component#04cc6eb25aa66bafa718bebea71dc5a933d26288"
 dependencies = [
  "anyhow",
  "gpui",
@@ -2566,7 +2566,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.5.1"
-source = "git+https://github.com/longbridge/gpui-component#6d7847e33ef3b8e043d1fcea82eb7e1b7f919d8b"
+source = "git+https://github.com/longbridge/gpui-component#04cc6eb25aa66bafa718bebea71dc5a933d26288"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2576,7 +2576,7 @@ dependencies = [
 [[package]]
 name = "gpui_linux"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2623,7 +2623,7 @@ dependencies = [
 [[package]]
 name = "gpui_macos"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -2672,18 +2672,7 @@ dependencies = [
 [[package]]
 name = "gpui_macros"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
-dependencies = [
- "heck 0.5.0",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "gpui_macros"
-version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#08827f9208b4848d62f3faf86ffa15155966d63c"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -2694,7 +2683,7 @@ dependencies = [
 [[package]]
 name = "gpui_platform"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "console_error_panic_hook",
  "gpui",
@@ -2707,7 +2696,7 @@ dependencies = [
 [[package]]
 name = "gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "schemars",
  "serde",
@@ -2717,7 +2706,7 @@ dependencies = [
 [[package]]
 name = "gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "anyhow",
  "log",
@@ -2727,7 +2716,7 @@ dependencies = [
 [[package]]
 name = "gpui_web"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2750,7 +2739,7 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2780,7 +2769,7 @@ dependencies = [
 [[package]]
 name = "gpui_windows"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -3040,7 +3029,7 @@ dependencies = [
 [[package]]
 name = "http_client"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -3936,7 +3925,7 @@ dependencies = [
 [[package]]
 name = "media"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -4837,7 +4826,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 [[package]]
 name = "perf"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "collections",
  "serde",
@@ -5599,7 +5588,7 @@ dependencies = [
 [[package]]
 name = "refineable"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "derive_refineable",
 ]
@@ -5964,7 +5953,7 @@ dependencies = [
 [[package]]
 name = "scheduler"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "async-task",
  "backtrace",
@@ -6562,7 +6551,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sum_tree"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "heapless 0.9.3",
  "log",
@@ -7440,7 +7429,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 [[package]]
 name = "util_macros"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "perf",
  "quote",
@@ -9009,7 +8998,7 @@ dependencies = [
 [[package]]
 name = "zlog"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "anyhow",
  "chrono",
@@ -9026,7 +9015,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 [[package]]
 name = "ztracing"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 dependencies = [
  "tracing",
  "tracing-subscriber",
@@ -9037,7 +9026,7 @@ dependencies = [
 [[package]]
 name = "ztracing_macro"
 version = "0.1.0"
-source = "git+https://github.com/zaknesler/zed?branch=fix%2Faspect-ratio-overriding#fb39902cbfeb52eb0a6b0278d1be9673f3b41337"
+source = "git+https://github.com/zed-industries/zed#59b2ebf10351b5c0b5cd4403f01ed0460eeec06d"
 
 [[package]]
 name = "zune-core"
