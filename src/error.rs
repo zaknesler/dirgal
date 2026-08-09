@@ -8,9 +8,6 @@ pub enum AppError {
     #[error("User system config directory not found")]
     ConfigDirNotFound,
 
-    #[error("Config file not found")]
-    ConfigFileNotFound,
-
     #[error("Asset not found: {0}")]
     AssetNotFound(String),
 

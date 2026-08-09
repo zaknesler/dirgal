@@ -1,4 +1,5 @@
 use crate::core::{
+    config::Settings,
     hash::hash_path,
     image::{ImageEntry, SMALL_FILE_BYTES},
     store::Store,
@@ -33,9 +34,8 @@ pub struct Gallery {
     input: Entity<InputState>,
     input_focus_handle: FocusHandle,
     lightbox: Option<ImageHash>,
-    sort: Sort,
+    settings: Settings,
     sort_select: Entity<SelectState<Vec<String>>>,
-    view: View,
 
     // Data
     library: Library,
@@ -57,7 +57,6 @@ pub struct Gallery {
     queue: VecDeque<ImageHash>,
     num_running: usize,
     num_concurrency: usize,
-    thumbnail_fit: ThumbnailFit,
 }
 
 impl Gallery {
@@ -76,10 +75,8 @@ impl Gallery {
         .detach();
 
         let config = state.read(cx).config.clone();
-        let sort = Sort {
-            key: config.sort_key,
-            ascending: config.sort_direction == SortDirection::Asc,
-        };
+        let settings = config.settings;
+        let sort = settings.sort();
 
         let num_concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -119,7 +116,7 @@ impl Gallery {
             input,
             input_focus_handle,
             lightbox: None,
-            sort,
+            settings,
             sort_select,
             library: Library::empty(),
             filtered_images: Vec::new(),
@@ -127,7 +124,6 @@ impl Gallery {
             groups: Vec::new(),
             collapsed_groups: HashSet::new(),
             grid,
-            view: config.view,
             tile_size: GRID_TILE_MIN,
             num_columns: 1,
             column_override: None,
@@ -137,7 +133,6 @@ impl Gallery {
             queue: VecDeque::new(),
             num_running: 0,
             num_concurrency,
-            thumbnail_fit: config.thumbnail_fit,
         };
 
         this.reload_from_state(cx);
@@ -152,36 +147,35 @@ impl Gallery {
         )
     }
 
-    /// Set the current page to the given page, updating the view and refreshing
+    /// Set the current page
     fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
-        self.view = self.page.default_view();
         self.reflow(cx);
     }
 
     /// Reset the current view to grid/flat if the current image set does not support grouping
     fn maybe_reset_view(&mut self, cx: &mut Context<Self>) {
-        if self.view == View::Grouped && !self.is_groupable(cx) {
-            self.view = View::Grid;
+        if self.settings.view == View::Grouped && !self.is_groupable(cx) {
+            self.settings.view = View::Grid;
             cx.notify();
         }
     }
 
-    /// Apply a new sort, reorder images, and rebuild the index
-    fn set_sort(&mut self, sort: Sort, window: &mut Window, cx: &mut Context<Self>) {
-        self.sort = sort;
+    /// Apply the given settings, updating the view and sorting if needed
+    fn apply_settings(&mut self, new: Settings, window: &mut Window, cx: &mut Context<Self>) {
+        let sort = new.sort();
+        let should_resort = sort != self.settings.sort();
 
-        let bookmarks = self.state.read(cx).scanner.bookmarks.clone();
-        self.library.resort(sort, &bookmarks);
+        self.settings = new;
+
+        if should_resort {
+            let bookmarks = self.state.read(cx).scanner.bookmarks.clone();
+            self.library.resort(sort, &bookmarks);
+        }
 
         // Keep the toolbar dropdown in sync when the sort is changed from elsewhere
         let index = IndexPath::new(sort.key.index());
-        if self
-            .sort_select
-            .read(cx)
-            .selected_index(cx)
-            .is_some_and(|val| val != index)
-        {
+        if self.sort_select.read(cx).selected_index(cx) != Some(index) {
             self.sort_select.update(cx, |select, cx| {
                 select.set_selected_index(Some(index), window, cx)
             });
@@ -190,35 +184,61 @@ impl Gallery {
         self.reflow(cx);
     }
 
+    /// Apply a new sort
+    fn set_sort(&mut self, sort: Sort, window: &mut Window, cx: &mut Context<Self>) {
+        let mut new = self.settings;
+        new.set_sort(sort);
+        self.apply_settings(new, window, cx);
+    }
+
+    /// Apply a new view
+    fn set_view(&mut self, view: View, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_settings(
+            Settings {
+                view,
+                ..self.settings
+            },
+            window,
+            cx,
+        );
+    }
+
     /// Toggle sort direction from the toolbar button
     fn toggle_sort_direction(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let sort = Sort {
-            ascending: !self.sort.ascending,
-            ..self.sort
+            ascending: !self.settings.sort().ascending,
+            ..self.settings.sort()
         };
 
         self.set_sort(sort, window, cx);
     }
 
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
-    fn toggle_view(&mut self, cx: &mut Context<Self>) {
-        self.view = match self.view {
+    fn toggle_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let view = match self.settings.view {
             View::Grid if self.is_groupable(cx) => View::Grouped,
             View::Grid | View::Grouped => View::List,
             View::List => View::Grid,
         };
 
-        self.reflow(cx);
+        self.set_view(view, window, cx);
     }
 
     /// Toggle how the thumbnails are rendered in their bounds
-    fn toggle_thumbnail_fit(&mut self, cx: &mut Context<Self>) {
-        self.thumbnail_fit = match self.thumbnail_fit {
+    fn toggle_thumbnail_fit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let thumbnail_fit = match self.settings.thumbnail_fit {
             ThumbnailFit::Cover => ThumbnailFit::Contain,
             ThumbnailFit::Contain => ThumbnailFit::Cover,
         };
 
-        cx.notify();
+        self.apply_settings(
+            Settings {
+                thumbnail_fit,
+                ..self.settings
+            },
+            window,
+            cx,
+        );
     }
 
     /// React to a sort-field selection from the dropdown
@@ -232,12 +252,12 @@ impl Gallery {
         let SelectEvent::Confirm(Some(label)) = event else {
             return;
         };
-        let Some((key, _)) = SortKey::ALL.iter().find(|(_, l)| *l == label.as_str()) else {
+        let Some(&(key, _)) = SortKey::ALL.iter().find(|(_, l)| *l == label.as_str()) else {
             return;
         };
         let sort = Sort {
-            key: *key,
-            ..self.sort
+            key,
+            ..self.settings.sort()
         };
         self.set_sort(sort, window, cx);
     }
@@ -493,7 +513,7 @@ impl Gallery {
     /// Clear the library, reload from the scanner in current state, and refresh the UI
     fn reload_from_state(&mut self, cx: &mut Context<Self>) {
         let snapshot = self.state.read(cx).clone();
-        self.library = Library::from_state(snapshot, self.sort);
+        self.library = Library::from_state(snapshot, self.settings.sort());
         self.reflow(cx);
     }
 
@@ -539,7 +559,7 @@ impl Gallery {
 
         // Grouped view needs same directory images contiguous and a stable sort by parent
         // keeps their sort key order within each group intact
-        if self.view == View::Grouped {
+        if self.settings.view == View::Grouped {
             filtered.sort_by(
                 |a, b| match (self.get_image_entry(a), self.get_image_entry(b)) {
                     (Some(x), Some(y)) => crate::core::image::compare_parents(x, y),
@@ -552,7 +572,7 @@ impl Gallery {
         let old_rows = std::mem::take(&mut self.rows);
         let cols = self.num_columns.max(1);
 
-        if self.view == View::Grouped {
+        if self.settings.view == View::Grouped {
             self.groups = self.get_computed_groups();
 
             let mut offset = 0;
@@ -836,43 +856,27 @@ impl Gallery {
         self.refresh_library(cx);
     }
 
-    fn on_config_preset(
+    fn on_apply_preset(
         &mut self,
-        actions::ConfigPreset(key): &actions::ConfigPreset,
+        actions::ApplyPreset(key): &actions::ApplyPreset,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let config = self.state.read(cx).config.clone();
 
-        // 0 resets to the root config
-        let preset = match key {
-            0 => None,
+        // Slot 0 is the reset: bare config settings with no preset layered on
+        let new = match key {
+            0 => config.settings,
             _ => match config.presets.get(key) {
-                Some(preset) => Some(preset),
-                // Unbound preset slot, leave the current state alone
-                None => return,
+                Some(preset) => preset.with_defaults(config.settings),
+                None => {
+                    tracing::debug!(slot = key, "no preset bound to slot");
+                    return;
+                }
             },
         };
 
-        self.view = preset.and_then(|p| p.view).unwrap_or(config.view);
-        self.thumbnail_fit = preset
-            .and_then(|p| p.thumbnail_fit)
-            .unwrap_or(config.thumbnail_fit);
-
-        let sort_key = preset.and_then(|p| p.sort_key).unwrap_or(config.sort_key);
-        let sort_dir = preset
-            .and_then(|p| p.sort_direction)
-            .unwrap_or(config.sort_direction);
-
-        // This also calls reflow/notify
-        self.set_sort(
-            Sort {
-                key: sort_key,
-                ascending: sort_dir == SortDirection::Asc,
-            },
-            window,
-            cx,
-        );
+        self.apply_settings(new, window, cx);
     }
 
     /// Re-filter the gallery as the search input changes
@@ -970,7 +974,7 @@ impl Gallery {
         }
 
         // Otherwise find the first image (if grouped, use the image from the first opened group)
-        let first = if self.view == View::Grouped {
+        let first = if self.settings.view == View::Grouped {
             self.groups
                 .iter()
                 .find(|g| !self.collapsed_groups.contains(&g.hash))
@@ -986,18 +990,23 @@ impl Gallery {
     }
 
     /// Toggle directory grouping
-    fn on_togle_view(&mut self, _: &actions::ToggleView, _: &mut Window, cx: &mut Context<Self>) {
-        self.toggle_view(cx);
+    fn on_togle_view(
+        &mut self,
+        _: &actions::ToggleView,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_view(window, cx);
     }
 
     /// Toggle thumbnail fit
     fn on_toggle_thumbnail_fit(
         &mut self,
         _: &actions::ToggleThumbnailFit,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.toggle_thumbnail_fit(cx);
+        self.toggle_thumbnail_fit(window, cx);
     }
 
     fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {
@@ -1179,7 +1188,7 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.view != View::Grouped {
+        if self.settings.view != View::Grouped {
             return;
         }
 

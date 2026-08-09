@@ -143,7 +143,7 @@ impl Gallery {
     fn render_thumb(&self, hash: &ImageHash, _: &mut Context<Self>) -> AnyElement {
         let source = self.peek_thumb_path(hash);
 
-        let object_fit = match self.thumbnail_fit {
+        let object_fit = match self.settings.thumbnail_fit {
             ThumbnailFit::Cover => ObjectFit::Cover,
             ThumbnailFit::Contain => ObjectFit::Contain,
         };
@@ -317,7 +317,7 @@ impl Gallery {
         let is_groupable = self.is_groupable(cx);
 
         let count_label = match self.page {
-            Page::Gallery if self.view == View::Grouped => format!(
+            Page::Gallery if self.settings.view == View::Grouped => format!(
                 "{} images in {} folders",
                 util::format_num(self.filtered_images.len()),
                 util::format_num(self.groups.len())
@@ -364,7 +364,7 @@ impl Gallery {
                 )
         };
 
-        let sort_ascending = self.sort.ascending;
+        let sort_ascending = self.settings.sort().ascending;
 
         let controls = || {
             h_flex()
@@ -378,32 +378,29 @@ impl Gallery {
                         .child(
                             Toggle::new(View::Grid)
                                 .icon(IconAsset::Grid)
-                                .checked(self.view == View::Grid)
-                                .on_click(cx.listener(|this, _, _, cx| {
+                                .checked(self.settings.view == View::Grid)
+                                .on_click(cx.listener(|this, _, window, cx| {
                                     cx.stop_propagation();
-                                    this.view = View::Grid;
-                                    this.reflow(cx);
+                                    this.set_view(View::Grid, window, cx);
                                 })),
                         )
                         .child(
                             Toggle::new(View::Grouped)
                                 .icon(IconAsset::Folder)
-                                .checked(self.view == View::Grouped)
+                                .checked(self.settings.view == View::Grouped)
                                 .disabled(!is_groupable)
-                                .on_click(cx.listener(|this, _, _, cx| {
+                                .on_click(cx.listener(|this, _, window, cx| {
                                     cx.stop_propagation();
-                                    this.view = View::Grouped;
-                                    this.reflow(cx);
+                                    this.set_view(View::Grouped, window, cx);
                                 })),
                         )
                         .child(
                             Toggle::new(View::List)
                                 .icon(IconAsset::LayoutList)
-                                .checked(self.view == View::List)
-                                .on_click(cx.listener(|this, _, _, cx| {
+                                .checked(self.settings.view == View::List)
+                                .on_click(cx.listener(|this, _, window, cx| {
                                     cx.stop_propagation();
-                                    this.view = View::List;
-                                    this.reflow(cx);
+                                    this.set_view(View::List, window, cx);
                                 })),
                         ),
                 )
@@ -819,7 +816,7 @@ impl Render for Gallery {
         v_flex()
             .key_context(super::CONTEXT_GALLERY)
             .track_focus(&self.focus_handle)
-            .on_action(cx.listener(Self::on_config_preset))
+            .on_action(cx.listener(Self::on_apply_preset))
             .on_action(cx.listener(Self::on_up))
             .on_action(cx.listener(Self::on_down))
             .on_action(cx.listener(Self::on_left))
@@ -852,7 +849,7 @@ impl Render for Gallery {
             .map(|el| {
                 if self.filtered_images.is_empty() {
                     el.child(self.render_empty(cx))
-                } else if self.view == View::List {
+                } else if self.settings.view == View::List {
                     el.child(self.render_list(cx))
                 } else {
                     el.child(self.render_grid(cx))

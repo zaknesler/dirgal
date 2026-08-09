@@ -13,46 +13,71 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 #[folder = "stubs"]
 struct StubAssetDir;
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub const PRESET_SLOTS: std::ops::RangeInclusive<u32> = 1..=9;
+
+#[derive(Clone, Debug, Default, serde::Deserialize)]
 pub struct AppConfig {
-    #[serde(default)]
-    pub view: crate::ui::model::View,
+    /// Default page
     #[serde(default)]
     pub page: crate::ui::model::Page,
+    #[serde(flatten)]
+    pub settings: Settings,
+    #[serde(default, deserialize_with = "deserialize_presets")]
+    pub presets: HashMap<u32, PartialSettings>,
+}
+
+/// Display options for whichever page is active
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
+pub struct Settings {
+    #[serde(default)]
+    pub view: crate::ui::model::View,
     #[serde(default)]
     pub sort_key: crate::ui::model::SortKey,
     #[serde(default)]
     pub sort_direction: crate::ui::model::SortDirection,
     #[serde(default)]
     pub thumbnail_fit: crate::ui::model::ThumbnailFit,
-    #[serde(default, deserialize_with = "deserialize_presets")]
-    pub presets: HashMap<u32, ConfigPreset>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct ConfigPreset {
+impl Settings {
+    pub fn sort(&self) -> crate::ui::model::Sort {
+        crate::ui::model::Sort {
+            key: self.sort_key,
+            ascending: self.sort_direction == crate::ui::model::SortDirection::Asc,
+        }
+    }
+
+    pub fn set_sort(&mut self, sort: crate::ui::model::Sort) {
+        self.sort_key = sort.key;
+        self.sort_direction = sort.ascending.into();
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
+pub struct PartialSettings {
     pub view: Option<crate::ui::model::View>,
     pub sort_key: Option<crate::ui::model::SortKey>,
     pub sort_direction: Option<crate::ui::model::SortDirection>,
     pub thumbnail_fit: Option<crate::ui::model::ThumbnailFit>,
 }
 
+impl PartialSettings {
+    /// Take the given settings with the defaults applied from the base settings
+    pub fn with_defaults(&self, base: Settings) -> Settings {
+        Settings {
+            view: self.view.unwrap_or(base.view),
+            sort_key: self.sort_key.unwrap_or(base.sort_key),
+            sort_direction: self.sort_direction.unwrap_or(base.sort_direction),
+            thumbnail_fit: self.thumbnail_fit.unwrap_or(base.thumbnail_fit),
+        }
+    }
+}
+
 impl AppConfig {
     /// Load the config from disk with an optional override path
     pub fn load(override_path: Option<String>) -> AppResult<AppConfig> {
-        Self::init_file()?;
-
-        let dir = Self::get_dir()?;
-
-        let mut config = Figment::new()
-            .merge(Toml::string(std::str::from_utf8(
-                Self::get_default_data().as_ref(),
-            )?))
-            .merge(Toml::file(
-                dir.join(CONFIG_FILE_NAME)
-                    .to_str()
-                    .ok_or_else(|| AppError::ConfigFileNotFound)?,
-            ));
+        let dir = Self::init_file()?;
+        let mut config = Figment::new().merge(Toml::file(dir.join(CONFIG_FILE_NAME)));
 
         // Maybe override with a custom config file
         if let Some(path) = override_path {
@@ -62,7 +87,7 @@ impl AppConfig {
         Ok(config.extract()?)
     }
 
-    /// Get the default data for the config file
+    /// Get the stub data used to seed a fresh config file
     fn get_default_data() -> Vec<u8> {
         let default = StubAssetDir::get(DEFAULT_FILE_NAME).expect("default.toml stub should exist");
         default.data.as_ref().to_owned()
@@ -102,23 +127,25 @@ impl AppConfig {
     }
 }
 
-// I wish I didn't need this fuckass deserializer to get the string keys to parse as u32...
-fn deserialize_presets<'de, D>(deserializer: D) -> Result<HashMap<u32, ConfigPreset>, D::Error>
+// I need this fuckass deserializer to get the string keys to parse as u32 and to limit to 1-9
+fn deserialize_presets<'de, D>(deserializer: D) -> Result<HashMap<u32, PartialSettings>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let raw: HashMap<String, ConfigPreset> = serde::Deserialize::deserialize(deserializer)?;
-    raw.into_iter()
-        .map(|(key, value)| {
-            key.parse::<u32>()
-                .ok()
-                .filter(|key| (1..=9).contains(key))
-                .map(|key| (key, value))
-                .ok_or_else(|| {
-                    serde::de::Error::custom(format!(
-                        "invalid preset key: {key} (only 1-9 allowed)"
-                    ))
-                })
+    let raw: HashMap<String, PartialSettings> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .filter_map(|(key, value)| match key.parse::<u32>() {
+            Ok(slot) if PRESET_SLOTS.contains(&slot) => Some((slot, value)),
+            _ => {
+                tracing::warn!(
+                    key,
+                    "ignoring preset, slot must be {}-{}",
+                    PRESET_SLOTS.start(),
+                    PRESET_SLOTS.end()
+                );
+                None
+            }
         })
-        .collect()
+        .collect())
 }

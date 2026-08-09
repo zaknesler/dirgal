@@ -85,15 +85,6 @@ impl Page {
         (Page::Duplicates, "Duplicates", IconAsset::Layers),
     ];
 
-    /// Get the default view for the page
-    pub fn default_view(&self) -> View {
-        match self {
-            Self::Gallery => View::Grid,
-            Self::Bookmarks => View::Grid,
-            Self::Duplicates => View::Grid,
-        }
-    }
-
     /// Index of this page within `ALL`
     pub fn index(&self) -> usize {
         Self::ALL
