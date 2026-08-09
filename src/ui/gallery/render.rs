@@ -18,7 +18,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Icon, InteractiveElementExt, Sizable as _,
     breadcrumb::Breadcrumb,
-    button::{Button, ButtonVariants as _, Toggle},
+    button::{Button, ButtonVariants as _, Toggle, ToggleGroup, ToggleVariants},
     h_flex,
     input::Input,
     menu::ContextMenuExt,
@@ -370,17 +370,34 @@ impl Gallery {
                 .items_center()
                 .gap_2()
                 .child(
-                    h_flex()
-                        .items_center()
-                        .gap_1()
+                    ToggleGroup::new("view-toggle")
+                        .segmented()
+                        .outline()
                         .children(View::ALL.iter().map(|(view, _, icon)| {
                             Toggle::new(*view)
                                 .icon(*icon)
                                 .checked(self.settings.view == *view)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    this.set_view(*view, window, cx);
-                                }))
+                        }))
+                        .on_click(cx.listener(|this, checked: &Vec<bool>, window, cx| {
+                            cx.stop_propagation();
+
+                            let current_index = View::ALL
+                                .iter()
+                                .position(|(view, _, _)| *view == this.settings.view);
+
+                            if let Some(index) = checked
+                                .iter()
+                                .enumerate()
+                                .filter(|(index, checked)| {
+                                    **checked && Some(*index) != current_index
+                                })
+                                .map(|(index, _)| index)
+                                .collect::<Vec<_>>()
+                                .first()
+                            {
+                                let (view, _, _) = View::ALL[*index];
+                                this.set_view(view, window, cx);
+                            }
                         })),
                 )
                 .child(
