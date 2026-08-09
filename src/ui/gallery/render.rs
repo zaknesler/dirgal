@@ -381,21 +381,15 @@ impl Gallery {
                         .on_click(cx.listener(|this, checked: &Vec<bool>, window, cx| {
                             cx.stop_propagation();
 
-                            let current_index = View::ALL
-                                .iter()
-                                .position(|(view, _, _)| *view == this.settings.view);
-
-                            if let Some(index) = checked
+                            // Treat as radio button
+                            let clicked = checked
                                 .iter()
                                 .enumerate()
-                                .filter(|(index, checked)| {
-                                    **checked && Some(*index) != current_index
-                                })
-                                .map(|(index, _)| index)
-                                .collect::<Vec<_>>()
-                                .first()
-                            {
-                                let (view, _, _) = View::ALL[*index];
+                                .filter(|(_, checked)| **checked)
+                                .map(|(index, _)| View::ALL[index].0)
+                                .find(|view| *view != this.settings.view);
+
+                            if let Some(view) = clicked {
                                 this.set_view(view, window, cx);
                             }
                         })),
