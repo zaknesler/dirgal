@@ -140,14 +140,19 @@ impl Gallery {
             .into_any_element()
     }
 
-    fn render_thumb(&self, hash: &ImageHash) -> AnyElement {
+    fn render_thumb(&self, hash: &ImageHash, _: &mut Context<Self>) -> AnyElement {
         let source = self.peek_thumb_path(hash);
+
+        let object_fit = match self.thumbnail_fit {
+            ThumbnailFit::Cover => ObjectFit::Cover,
+            ThumbnailFit::Contain => ObjectFit::Contain,
+        };
 
         match source {
             Some(path) => img(path)
+                .aspect_square()
                 .size_full()
-                .overflow_hidden()
-                .object_fit(ObjectFit::Cover)
+                .object_fit(object_fit)
                 .into_any_element(),
             None => Self::render_thumb_placeholder().into_any_element(),
         }
@@ -174,6 +179,7 @@ impl Gallery {
             .flex_none()
             .size(size)
             .overflow_hidden()
+            .aspect_square()
             .relative()
             .border_3()
             .border_color(gpui::transparent_black())
@@ -197,7 +203,13 @@ impl Gallery {
             .context_menu(move |menu, _, _| {
                 Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
             })
-            .map(|tile| tile.relative().child(self.render_thumb(&hash)))
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .aspect_square()
+                    .child(self.render_thumb(&hash, cx)),
+            )
             .when(DEBUG, |el| {
                 el.child(
                     div()
@@ -703,7 +715,7 @@ impl Gallery {
                         for index in range {
                             let hash = this.filtered_images[index];
                             let image = this.get_image_entry(&hash).expect("image should exist");
-                            let thumb = this.render_thumb(&hash);
+                            let thumb = this.render_thumb(&hash, cx);
 
                             items.push(
                                 h_flex()
@@ -812,7 +824,8 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_left))
             .on_action(cx.listener(Self::on_right))
             .on_action(cx.listener(Self::on_open_lightbox))
-            .on_action(cx.listener(Self::on_switch_view))
+            .on_action(cx.listener(Self::on_togle_view))
+            .on_action(cx.listener(Self::on_toggle_thumbnail_fit))
             .on_action(cx.listener(Self::on_close))
             .on_action(cx.listener(Self::on_minimize))
             .on_action(cx.listener(Self::on_zoom_in))

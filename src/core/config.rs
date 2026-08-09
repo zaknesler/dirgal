@@ -23,6 +23,8 @@ pub struct AppConfig {
     pub view: crate::ui::model::View,
     #[serde(default)]
     pub page: crate::ui::model::Page,
+    #[serde(default)]
+    pub thumbnail_fit: crate::ui::model::ThumbnailFit,
 }
 
 impl AppConfig {

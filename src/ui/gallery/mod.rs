@@ -57,6 +57,7 @@ pub struct Gallery {
     queue: VecDeque<ImageHash>,
     num_running: usize,
     num_concurrency: usize,
+    thumbnail_fit: ThumbnailFit,
 }
 
 impl Gallery {
@@ -111,11 +112,9 @@ impl Gallery {
         // Create a grid that is sized to show all of the items upon first load
         let grid = ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all();
 
-        let page = config.page;
-
         let mut this = Self {
             state,
-            page,
+            page: config.page,
             focus_handle,
             input,
             input_focus_handle,
@@ -138,6 +137,7 @@ impl Gallery {
             queue: VecDeque::new(),
             num_running: 0,
             num_concurrency,
+            thumbnail_fit: config.thumbnail_fit,
         };
 
         this.reload_from_state(cx);
@@ -191,7 +191,7 @@ impl Gallery {
     }
 
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
-    fn switch_view(&mut self, cx: &mut Context<Self>) {
+    fn toggle_view(&mut self, cx: &mut Context<Self>) {
         self.view = match self.view {
             View::Grid if self.is_groupable(cx) => View::Grouped,
             View::Grid | View::Grouped => View::List,
@@ -199,6 +199,16 @@ impl Gallery {
         };
 
         self.reflow(cx);
+    }
+
+    /// Toggle how the thumbnails are rendered in their bounds
+    fn toggle_thumbnail_fit(&mut self, cx: &mut Context<Self>) {
+        self.thumbnail_fit = match self.thumbnail_fit {
+            ThumbnailFit::Cover => ThumbnailFit::Contain,
+            ThumbnailFit::Contain => ThumbnailFit::Cover,
+        };
+
+        cx.notify();
     }
 
     /// React to a sort-field selection from the dropdown
@@ -927,8 +937,18 @@ impl Gallery {
     }
 
     /// Toggle directory grouping
-    fn on_switch_view(&mut self, _: &actions::SwitchView, _: &mut Window, cx: &mut Context<Self>) {
-        self.switch_view(cx);
+    fn on_togle_view(&mut self, _: &actions::ToggleView, _: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_view(cx);
+    }
+
+    /// Toggle thumbnail fit
+    fn on_toggle_thumbnail_fit(
+        &mut self,
+        _: &actions::ToggleThumbnailFit,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_thumbnail_fit(cx);
     }
 
     fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {

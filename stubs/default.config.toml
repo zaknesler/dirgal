@@ -9,3 +9,6 @@ view = "grid"
 
 # gallery | bookmarks | duplicates
 page = "gallery"
+
+# cover | contain
+thumbnail_fit = "cover"
