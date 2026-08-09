@@ -48,6 +48,9 @@ pub enum CopyPathToClipboard {
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
 pub struct RevealInGallery(pub super::model::ImageHash);
 
+#[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
+pub struct ConfigPreset(pub u32);
+
 /// Register keybinds and actions to the app
 pub fn register_actions(cx: &mut App) {
     macro_rules! bind_keys {
@@ -98,5 +101,15 @@ pub fn register_actions(cx: &mut App) {
         ("-", actions::ZoomOut),
         ("0", actions::ZoomReset),
         ("c", actions::CollapseAll),
+        ("secondary-0", actions::ConfigPreset(0)),
+        ("secondary-1", actions::ConfigPreset(1)),
+        ("secondary-2", actions::ConfigPreset(2)),
+        ("secondary-3", actions::ConfigPreset(3)),
+        ("secondary-4", actions::ConfigPreset(4)),
+        ("secondary-5", actions::ConfigPreset(5)),
+        ("secondary-6", actions::ConfigPreset(6)),
+        ("secondary-7", actions::ConfigPreset(7)),
+        ("secondary-8", actions::ConfigPreset(8)),
+        ("secondary-9", actions::ConfigPreset(9)),
     );
 }

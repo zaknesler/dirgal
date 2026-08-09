@@ -167,27 +167,37 @@ impl Gallery {
         }
     }
 
-    /// Apply a new sort reorder images and rebuild the index
-    fn set_sort(&mut self, sort: Sort, cx: &mut Context<Self>) {
-        if self.sort == sort {
-            return;
-        }
+    /// Apply a new sort, reorder images, and rebuild the index
+    fn set_sort(&mut self, sort: Sort, window: &mut Window, cx: &mut Context<Self>) {
         self.sort = sort;
 
         let bookmarks = self.state.read(cx).scanner.bookmarks.clone();
         self.library.resort(sort, &bookmarks);
 
+        // Keep the toolbar dropdown in sync when the sort is changed from elsewhere
+        let index = IndexPath::new(sort.key.index());
+        if self
+            .sort_select
+            .read(cx)
+            .selected_index(cx)
+            .is_some_and(|val| val != index)
+        {
+            self.sort_select.update(cx, |select, cx| {
+                select.set_selected_index(Some(index), window, cx)
+            });
+        }
+
         self.reflow(cx);
     }
 
     /// Toggle sort direction from the toolbar button
-    fn toggle_sort_direction(&mut self, cx: &mut Context<Self>) {
+    fn toggle_sort_direction(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let sort = Sort {
             ascending: !self.sort.ascending,
             ..self.sort
         };
 
-        self.set_sort(sort, cx);
+        self.set_sort(sort, window, cx);
     }
 
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
@@ -216,7 +226,7 @@ impl Gallery {
         &mut self,
         _: &Entity<SelectState<Vec<String>>>,
         event: &SelectEvent<Vec<String>>,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let SelectEvent::Confirm(Some(label)) = event else {
@@ -229,7 +239,7 @@ impl Gallery {
             key: *key,
             ..self.sort
         };
-        self.set_sort(sort, cx);
+        self.set_sort(sort, window, cx);
     }
 
     /// Hashes for the current page in sort key order filtered by a case insensitive path search
@@ -824,6 +834,45 @@ impl Gallery {
     /// Refresh the library
     fn on_refresh(&mut self, _: &actions::Refresh, _window: &mut Window, cx: &mut Context<Self>) {
         self.refresh_library(cx);
+    }
+
+    fn on_config_preset(
+        &mut self,
+        actions::ConfigPreset(key): &actions::ConfigPreset,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let config = self.state.read(cx).config.clone();
+
+        // 0 resets to the root config
+        let preset = match key {
+            0 => None,
+            _ => match config.presets.get(key) {
+                Some(preset) => Some(preset),
+                // Unbound preset slot, leave the current state alone
+                None => return,
+            },
+        };
+
+        self.view = preset.and_then(|p| p.view).unwrap_or(config.view);
+        self.thumbnail_fit = preset
+            .and_then(|p| p.thumbnail_fit)
+            .unwrap_or(config.thumbnail_fit);
+
+        let sort_key = preset.and_then(|p| p.sort_key).unwrap_or(config.sort_key);
+        let sort_dir = preset
+            .and_then(|p| p.sort_direction)
+            .unwrap_or(config.sort_direction);
+
+        // This also calls reflow/notify
+        self.set_sort(
+            Sort {
+                key: sort_key,
+                ascending: sort_dir == SortDirection::Asc,
+            },
+            window,
+            cx,
+        );
     }
 
     /// Re-filter the gallery as the search input changes

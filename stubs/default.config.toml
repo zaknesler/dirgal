@@ -12,3 +12,8 @@ page = "gallery"
 
 # cover | contain
 thumbnail_fit = "cover"
+
+[presets.1]
+sort_key = "date-in-path"
+sort_direction = "desc"
+thumbnail_fit = "contain"

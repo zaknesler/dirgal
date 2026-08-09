@@ -421,9 +421,9 @@ impl Gallery {
                                 } else {
                                     IconAsset::SortDescending
                                 })
-                                .on_click(cx.listener(|this, _, _, cx| {
+                                .on_click(cx.listener(|this, _, window, cx| {
                                     cx.stop_propagation();
-                                    this.toggle_sort_direction(cx);
+                                    this.toggle_sort_direction(window, cx);
                                 })),
                         ),
                 )
@@ -819,6 +819,7 @@ impl Render for Gallery {
         v_flex()
             .key_context(super::CONTEXT_GALLERY)
             .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::on_config_preset))
             .on_action(cx.listener(Self::on_up))
             .on_action(cx.listener(Self::on_down))
             .on_action(cx.listener(Self::on_left))

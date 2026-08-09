@@ -3,7 +3,7 @@ use figment::{
     Figment,
     providers::{Format, Toml},
 };
-use std::{fs, io::Write as _, path::PathBuf};
+use std::{collections::HashMap, fs, io::Write as _, path::PathBuf};
 
 const PROJECT_DIR: &str = "dirgal";
 const DEFAULT_FILE_NAME: &str = "default.config.toml";
@@ -16,15 +16,25 @@ struct StubAssetDir;
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct AppConfig {
     #[serde(default)]
-    pub sort_key: crate::ui::model::SortKey,
-    #[serde(default)]
-    pub sort_direction: crate::ui::model::SortDirection,
-    #[serde(default)]
     pub view: crate::ui::model::View,
     #[serde(default)]
     pub page: crate::ui::model::Page,
     #[serde(default)]
+    pub sort_key: crate::ui::model::SortKey,
+    #[serde(default)]
+    pub sort_direction: crate::ui::model::SortDirection,
+    #[serde(default)]
     pub thumbnail_fit: crate::ui::model::ThumbnailFit,
+    #[serde(default, deserialize_with = "deserialize_presets")]
+    pub presets: HashMap<u32, ConfigPreset>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct ConfigPreset {
+    pub view: Option<crate::ui::model::View>,
+    pub sort_key: Option<crate::ui::model::SortKey>,
+    pub sort_direction: Option<crate::ui::model::SortDirection>,
+    pub thumbnail_fit: Option<crate::ui::model::ThumbnailFit>,
 }
 
 impl AppConfig {
@@ -90,4 +100,25 @@ impl AppConfig {
 
         Ok(dir)
     }
+}
+
+// I wish I didn't need this fuckass deserializer to get the string keys to parse as u32...
+fn deserialize_presets<'de, D>(deserializer: D) -> Result<HashMap<u32, ConfigPreset>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: HashMap<String, ConfigPreset> = serde::Deserialize::deserialize(deserializer)?;
+    raw.into_iter()
+        .map(|(key, value)| {
+            key.parse::<u32>()
+                .ok()
+                .filter(|key| (1..=9).contains(key))
+                .map(|key| (key, value))
+                .ok_or_else(|| {
+                    serde::de::Error::custom(format!(
+                        "invalid preset key: {key} (only 1-9 allowed)"
+                    ))
+                })
+        })
+        .collect()
 }
