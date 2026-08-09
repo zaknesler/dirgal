@@ -208,13 +208,13 @@ impl Gallery {
         self.set_view(view, window, cx);
     }
 
-    /// Toggle how the thumbnails are rendered in their bounds
-    fn toggle_thumbnail_fit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let thumbnail_fit = match self.settings.thumbnail_fit {
-            ThumbnailFit::Cover => ThumbnailFit::Contain,
-            ThumbnailFit::Contain => ThumbnailFit::Cover,
-        };
-
+    /// Apply a new thumbnail fit
+    fn set_thumbnail_fit(
+        &mut self,
+        thumbnail_fit: ThumbnailFit,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.apply_settings(
             Settings {
                 thumbnail_fit,
@@ -988,7 +988,12 @@ impl Gallery {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.toggle_thumbnail_fit(window, cx);
+        let thumbnail_fit = match self.settings.thumbnail_fit {
+            ThumbnailFit::Cover => ThumbnailFit::Contain,
+            ThumbnailFit::Contain => ThumbnailFit::Cover,
+        };
+
+        self.set_thumbnail_fit(thumbnail_fit, window, cx);
     }
 
     fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {

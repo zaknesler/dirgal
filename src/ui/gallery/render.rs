@@ -395,6 +395,31 @@ impl Gallery {
                         })),
                 )
                 .child(
+                    ToggleGroup::new("thumbnail-fit-toggle")
+                        .segmented()
+                        .outline()
+                        .children(ThumbnailFit::ALL.iter().map(|(fit, _, icon)| {
+                            Toggle::new(*fit)
+                                .icon(*icon)
+                                .checked(self.settings.thumbnail_fit == *fit)
+                        }))
+                        .on_click(cx.listener(|this, checked: &Vec<bool>, window, cx| {
+                            cx.stop_propagation();
+
+                            // Treat as radio button
+                            let clicked = checked
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, checked)| **checked)
+                                .map(|(index, _)| ThumbnailFit::ALL[index].0)
+                                .find(|fit| *fit != this.settings.thumbnail_fit);
+
+                            if let Some(fit) = clicked {
+                                this.set_thumbnail_fit(fit, window, cx);
+                            }
+                        })),
+                )
+                .child(
                     h_flex()
                         .flex_none()
                         .items_center()

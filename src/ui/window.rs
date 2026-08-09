@@ -2,7 +2,7 @@ use crate::ui::{
     gallery::Gallery,
     state::{AppState, SharedAppState},
 };
-use gpui::{App, AppContext as _, TitlebarOptions, WindowOptions};
+use gpui::{App, AppContext as _, TitlebarOptions, WindowOptions, px, size};
 use gpui_component::{Theme, ThemeMode};
 
 pub fn create_window(state: AppState) {
@@ -25,6 +25,7 @@ pub fn create_window(state: AppState) {
 
             let options = WindowOptions {
                 app_id: Some("dirgal".into()),
+                window_min_size: Some(size(px(800.), px(400.))),
                 titlebar: Some(TitlebarOptions {
                     title: Some(title.into()),
                     ..Default::default()

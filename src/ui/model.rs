@@ -163,16 +163,18 @@ pub enum ThumbnailFit {
     Contain,
 }
 
-// impl ThumbnailFit {
-//     pub const ALL: [(ThumbnailFit, &'static str); 2] = [
-//         (ThumbnailFit::Cover, "Cover"),
-//         (ThumbnailFit::Contain, "Contain"),
-//     ];
+impl ThumbnailFit {
+    pub const ALL: [(ThumbnailFit, &'static str, IconAsset); 2] = [
+        (ThumbnailFit::Cover, "Cover", IconAsset::Maximize),
+        (ThumbnailFit::Contain, "Contain", IconAsset::Minimize),
+    ];
+}
 
-//     pub fn index(&self) -> usize {
-//         Self::ALL
-//             .iter()
-//             .position(|(k, _)| k == self)
-//             .expect("thumbnail fit option should exist")
-//     }
-// }
+impl From<ThumbnailFit> for ElementId {
+    fn from(value: ThumbnailFit) -> Self {
+        Self::Name(match value {
+            ThumbnailFit::Cover => "cover".into(),
+            ThumbnailFit::Contain => "contain".into(),
+        })
+    }
+}
