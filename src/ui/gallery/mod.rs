@@ -725,7 +725,7 @@ impl Gallery {
             .expect("image should be selected");
 
         let pos = self
-            .get_visible_position(&selected_hash)
+            .get_visible_position(selected_hash)
             .expect("image should exist") as isize;
 
         let next_hash_index = (pos + delta).rem_euclid(self.filtered_images.len() as isize);
@@ -904,7 +904,7 @@ impl Gallery {
         }
 
         let (num_columns, _) = self.get_grid_layout(window);
-        self.select_step(-1 * num_columns as isize, cx);
+        self.select_step(-(num_columns as isize), cx);
     }
 
     fn on_down(&mut self, _: &actions::Down, window: &mut Window, cx: &mut Context<Self>) {

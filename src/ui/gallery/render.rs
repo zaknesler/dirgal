@@ -305,7 +305,7 @@ impl Gallery {
                         .child(
                             div()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(Icon::new(icon.clone())),
+                                .child(Icon::new(*icon)),
                         )
                         .child(*name),
                 )
