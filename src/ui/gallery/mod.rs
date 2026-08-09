@@ -139,26 +139,10 @@ impl Gallery {
         this
     }
 
-    /// Returns whether the current image set supports grouping
-    fn is_groupable(&self, cx: &mut Context<Self>) -> bool {
-        crate::core::image::compute_groupable(
-            &self.library.images,
-            &self.state.read(cx).scanner.roots,
-        )
-    }
-
     /// Set the current page
     fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
         self.reflow(cx);
-    }
-
-    /// Reset the current view to grid/flat if the current image set does not support grouping
-    fn maybe_reset_view(&mut self, cx: &mut Context<Self>) {
-        if self.settings.view == View::Grouped && !self.is_groupable(cx) {
-            self.settings.view = View::Grid;
-            cx.notify();
-        }
     }
 
     /// Apply the given settings, updating the view and sorting if needed
@@ -216,8 +200,8 @@ impl Gallery {
     /// Toggle directory grouping where off flows all images flat like the bookmarks list
     fn toggle_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = match self.settings.view {
-            View::Grid if self.is_groupable(cx) => View::Grouped,
-            View::Grid | View::Grouped => View::List,
+            View::Grid => View::Grouped,
+            View::Grouped => View::List,
             View::List => View::Grid,
         };
 
@@ -554,8 +538,6 @@ impl Gallery {
     fn reflow(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
         let mut filtered = self.get_visible_hashes(&query);
-
-        self.maybe_reset_view(cx);
 
         // Grouped view needs same directory images contiguous and a stable sort by parent
         // keeps their sort key order within each group intact

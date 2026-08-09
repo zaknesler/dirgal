@@ -16,7 +16,7 @@ use gpui::{
     SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, InteractiveElementExt, Sizable as _,
+    ActiveTheme, Icon, InteractiveElementExt, Sizable as _,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _, Toggle},
     h_flex,
@@ -314,8 +314,6 @@ impl Gallery {
 
     /// Render the toolbar with search input, image counts, and zoom controls
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let is_groupable = self.is_groupable(cx);
-
         let count_label = match self.page {
             Page::Gallery if self.settings.view == View::Grouped => format!(
                 "{} images in {} folders",
@@ -375,34 +373,15 @@ impl Gallery {
                     h_flex()
                         .items_center()
                         .gap_1()
-                        .child(
-                            Toggle::new(View::Grid)
-                                .icon(IconAsset::Grid)
-                                .checked(self.settings.view == View::Grid)
+                        .children(View::ALL.iter().map(|(view, _, icon)| {
+                            Toggle::new(*view)
+                                .icon(*icon)
+                                .checked(self.settings.view == *view)
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     cx.stop_propagation();
-                                    this.set_view(View::Grid, window, cx);
-                                })),
-                        )
-                        .child(
-                            Toggle::new(View::Grouped)
-                                .icon(IconAsset::Folder)
-                                .checked(self.settings.view == View::Grouped)
-                                .disabled(!is_groupable)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    this.set_view(View::Grouped, window, cx);
-                                })),
-                        )
-                        .child(
-                            Toggle::new(View::List)
-                                .icon(IconAsset::LayoutList)
-                                .checked(self.settings.view == View::List)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    this.set_view(View::List, window, cx);
-                                })),
-                        ),
+                                    this.set_view(*view, window, cx);
+                                }))
+                        })),
                 )
                 .child(
                     h_flex()

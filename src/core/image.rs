@@ -225,17 +225,3 @@ pub fn resolve_bookmarks(hashes: &[u64], images: &[ImageEntry]) -> Vec<ImageHash
         .map(|e| ImageHash(e.hash))
         .collect()
 }
-
-/// Whether grouping would produce anything beyond a single fake "(root)" group
-pub fn compute_groupable(images: &[ImageEntry], roots: &[PathBuf]) -> bool {
-    let mut parents: HashSet<&Path> = HashSet::new();
-    for entry in images {
-        parents.insert(entry.src_path.parent().unwrap_or(Path::new("")));
-    }
-
-    let single_root = roots.len() == 1;
-    let single_parent = parents.len() == 1;
-    let parent_is_root = parents.contains(roots[0].as_path());
-
-    !single_root || !single_parent || !parent_is_root
-}

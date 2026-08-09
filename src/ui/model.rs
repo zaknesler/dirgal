@@ -135,6 +135,14 @@ pub enum View {
     List,
 }
 
+impl View {
+    pub const ALL: [(View, &'static str, IconAsset); 3] = [
+        (View::Grid, "Grid", IconAsset::Grid),
+        (View::Grouped, "Grouped", IconAsset::Folder),
+        (View::List, "List", IconAsset::LayoutList),
+    ];
+}
+
 impl From<View> for ElementId {
     fn from(value: View) -> Self {
         Self::Name(match value {
