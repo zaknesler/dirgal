@@ -142,6 +142,8 @@ impl Gallery {
     /// Set the current page
     fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
+        self.selected_hashes = Vec::new();
+        self.close_lightbox(cx);
         self.reflow(cx);
     }
 
