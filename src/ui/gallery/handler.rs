@@ -242,7 +242,7 @@ impl Gallery {
     ) {
         match action {
             actions::CopyPathToClipboard::Current => {
-                if let Some(hash) = self.lightbox {
+                if let Some(hash) = self.lightbox_hash() {
                     self.copy_path_to_clipboard(&hash, cx);
                 } else if !self.selected_hashes.is_empty() {
                     self.copy_selected_paths_to_clipboard(cx);
@@ -261,12 +261,12 @@ impl Gallery {
         cx: &mut Context<Self>,
     ) {
         let old_pos = self
-            .lightbox
+            .lightbox_hash()
             .and_then(|hash| self.get_visible_position(&hash));
 
         match action {
             actions::Bookmark::Current => {
-                if let Some(hash) = self.lightbox {
+                if let Some(hash) = self.lightbox_hash() {
                     self.toggle_bookmark(&hash, cx);
                 }
             }
@@ -279,7 +279,7 @@ impl Gallery {
         if self.page == Page::Bookmarks {
             if self.filtered_images.is_empty() {
                 self.close_lightbox(cx);
-            } else if let Some(current) = self.lightbox {
+            } else if let Some(current) = self.lightbox_hash() {
                 if self.get_visible_position(&current).is_some() {
                     self.step(1, cx);
                 } else if let Some(pos) = old_pos {
@@ -300,7 +300,7 @@ impl Gallery {
     ) {
         let path = match action {
             actions::OpenInFinder::Current => self
-                .lightbox
+                .lightbox_hash()
                 .and_then(|hash| self.get_image_entry(&hash))
                 .map(|e| e.src_path.to_path_buf()),
             actions::OpenInFinder::Path(p) => Some(p.clone()),

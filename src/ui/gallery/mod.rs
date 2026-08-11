@@ -11,6 +11,7 @@ use gpui::{
 };
 use gpui_component::{IndexPath, input::InputState, select::SelectState};
 use library::Library;
+use lightbox::Lightbox;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use std::sync::Arc;
 pub mod constant;
 pub mod handler;
 pub mod library;
+pub mod lightbox;
 pub mod render;
 
 /// Main gallery view: grid of thumbnails, search, bookmarks, and lightbox
@@ -29,7 +31,7 @@ pub struct Gallery {
     focus_handle: FocusHandle,
     input: Entity<InputState>,
     input_focus_handle: FocusHandle,
-    lightbox: Option<ImageHash>,
+    lightbox: Option<Lightbox>,
     settings: Settings,
     sort_select: Entity<SelectState<Vec<String>>>,
 
@@ -661,7 +663,7 @@ impl Gallery {
 
     /// Show the lightbox for an image and pause urgent grid thumbnail work
     fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        self.lightbox = Some(*hash);
+        self.lightbox = Some(Lightbox::new(*hash));
         self.cancel_pending_thumbs();
         cx.notify();
     }
@@ -677,7 +679,9 @@ impl Gallery {
         if self.filtered_images.is_empty() {
             return;
         }
-        let Some(current) = self.lightbox else { return };
+        let Some(current) = self.lightbox_hash() else {
+            return;
+        };
 
         let pos = self.get_visible_position(&current).unwrap_or(0) as isize;
         let new_pos = pos + delta;

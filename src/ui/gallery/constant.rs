@@ -19,3 +19,5 @@ pub const LIGHTBOX_CACHE_ITEMS: usize = 10;
 pub const COLOR_ACCENT: u32 = 0xca3500;
 pub const COLOR_ACCENT_HOVER: u32 = 0xfc713f;
 pub const COLOR_BACKDROP: u32 = 0x0a0a0af0;
+
+pub const TRUNCATE_STR: &str = "…";
