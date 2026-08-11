@@ -8,6 +8,7 @@ use std::{
     cmp::Ordering,
     collections::HashSet,
     fs,
+    io::Read as _,
     path::{Path, PathBuf},
     sync::Arc,
     time::SystemTime,
@@ -17,6 +18,9 @@ pub const THUMB_PX: u32 = 336;
 
 /// Number of bytes a source image must be to not warrant a thumbnail (32 KB)
 pub const SMALL_FILE_BYTES: u64 = 32 * 1024;
+
+/// Number of bytes read from the head of a file to get the EXIF data (64 KB)
+const EXIF_READ_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct ImageEntry {
@@ -29,6 +33,7 @@ pub struct ImageEntry {
     pub src_path: Arc<Path>,
     pub thumb_path: Arc<Path>,
     pub thumb_exists: bool,
+    pub dimensions: Option<(u32, u32)>,
 }
 
 pub struct FoundFile {
@@ -39,7 +44,12 @@ pub struct FoundFile {
 }
 
 impl ImageEntry {
-    pub fn new(file: FoundFile, thumb_dir: &Path, hash: u64) -> Self {
+    pub fn new(
+        file: FoundFile,
+        thumb_dir: &Path,
+        hash: u64,
+        dimensions: Option<(u32, u32)>,
+    ) -> Self {
         let thumb = thumb_dir.join(format!("{:016x}.png", hash));
         let thumb_exists = thumb.exists();
 
@@ -51,6 +61,7 @@ impl ImageEntry {
             src_path: Arc::from(file.path),
             thumb_path: Arc::from(thumb),
             thumb_exists,
+            dimensions,
         }
     }
 
@@ -82,19 +93,39 @@ impl ImageEntry {
     }
 }
 
-/// Read the EXIF orientation tag from the given file
+/// Read an image's displayed pixel dimensions without decoding it
+pub fn read_dimensions(path: &Path) -> Option<(u32, u32)> {
+    let (width, height) = image::image_dimensions(path).ok()?;
+
+    // Orientations 5-8 rotate by 90 deg, so the sides need to be swapped
+    // Holy fuck EXIF is weird: https://en.wikipedia.org/wiki/Exif#Exif_fields
+    Some(match orientation(path) {
+        5..=8 => (height, width),
+        _ => (width, height),
+    })
+}
+
+/// Read the EXIF orientation tag from the head of the given file
 fn orientation(path: &Path) -> u32 {
     let file = match fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return 1,
     };
-    let mut buf_reader = std::io::BufReader::new(file);
 
-    let exif = match exif::Reader::new().read_from_container(&mut buf_reader) {
+    // Read into a buffer first; given the file, the reader scans all of it when there is no EXIF
+    let mut buf = Vec::new();
+    if file.take(EXIF_READ_BYTES).read_to_end(&mut buf).is_err() {
+        return 1;
+    }
+
+    // Create a cursor so it can read from the buffer without consuming it
+    let mut cursor = std::io::Cursor::new(&buf);
+    let exif = match exif::Reader::new().read_from_container(&mut cursor) {
         Ok(e) => e,
         Err(_) => return 1,
     };
 
+    // Read the orientation tag from the EXIF data, defaulting to 1 (no rotation)
     exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
         .and_then(|f| f.value.get_uint(0))
         .unwrap_or(1)

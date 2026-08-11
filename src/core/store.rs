@@ -9,13 +9,17 @@ use std::{
 const PROJECT_DIR: &str = "dirgal";
 const CACHE_FILE_NAME: &str = "cache";
 const BOOKMARKS_FILE_NAME: &str = "bookmarks";
-const STORE_VERSION: u32 = 1;
+
+// Use separate versions for the cache and bookmarks files
+const CACHE_VERSION: u32 = 2;
+const BOOKMARKS_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct HashCacheEntry {
     pub size: u64,
     pub mtime: u64,
     pub hash: u64,
+    pub dimensions: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -45,12 +49,17 @@ impl Store {
         }
     }
 
-    /// Look up a cached hash for the given path, valid only if the size and mtime still match
-    pub fn get(&self, path: &Path, size: u64, modified: Option<SystemTime>) -> Option<u64> {
+    /// Look up a cached entry for the given path, valid only if the size and mtime still match
+    pub fn get(
+        &self,
+        path: &Path,
+        size: u64,
+        modified: Option<SystemTime>,
+    ) -> Option<&HashCacheEntry> {
         let mtime = to_epoch_secs(modified?)?;
         let entry = self.cache.get(path)?;
 
-        (entry.size == size && entry.mtime == mtime).then_some(entry.hash)
+        (entry.size == size && entry.mtime == mtime).then_some(entry)
     }
 
     /// Merge newly-computed entries in, overwriting any existing entry at the same path
@@ -61,7 +70,7 @@ impl Store {
     /// Write the cache entries back out to disk
     pub fn save(&self) -> AppResult<()> {
         let file = CacheFile {
-            version: STORE_VERSION,
+            version: CACHE_VERSION,
             entries: self.cache.clone(),
         };
 
@@ -71,7 +80,7 @@ impl Store {
     /// Overwrite the bookmarks file with the given bookmarks
     pub fn save_bookmarks(bookmarks: &[u64]) -> AppResult<()> {
         let file = BookmarksFile {
-            version: STORE_VERSION,
+            version: BOOKMARKS_VERSION,
             bookmarks: bookmarks.to_vec(),
         };
 
@@ -98,7 +107,7 @@ impl Store {
             return HashMap::new();
         };
 
-        if file.version != STORE_VERSION {
+        if file.version != CACHE_VERSION {
             return HashMap::new();
         }
 
@@ -119,7 +128,7 @@ impl Store {
             return Vec::new();
         };
 
-        if file.version != STORE_VERSION {
+        if file.version != BOOKMARKS_VERSION {
             return Vec::new();
         }
 

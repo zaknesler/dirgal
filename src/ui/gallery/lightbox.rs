@@ -2,8 +2,10 @@ use crate::assets::IconAsset;
 use crate::core::{image::format_bytes, path::label_for, util};
 use crate::ui::gallery::Gallery;
 use crate::ui::{gallery::constant::*, model::*};
-use gpui::{Context, ObjectFit, div, img, prelude::*};
-use gpui::{SharedString, px};
+use gpui::{
+    Bounds, ClickEvent, Context, DevicePixels, ObjectFit, Pixels, Point, SharedString, canvas, div,
+    img, prelude::*, px, size,
+};
 use gpui_component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -14,15 +16,33 @@ use gpui_component::{
     v_flex,
 };
 
-/// State of the open lightbox
 pub struct Lightbox {
     /// Image being shown
     pub hash: ImageHash,
+    /// Pixel dimensions of that image, if they could be read
+    pub dimensions: Option<(u32, u32)>,
+    /// Bounds of the image area, measured while rendering
+    pub area_bounds: Option<Bounds<Pixels>>,
 }
 
 impl Lightbox {
-    pub fn new(hash: ImageHash) -> Self {
-        Self { hash }
+    pub fn new(hash: ImageHash, dimensions: Option<(u32, u32)>) -> Self {
+        Self {
+            hash,
+            dimensions,
+            area_bounds: None,
+        }
+    }
+
+    /// Bounds of the image as drawn, which is smaller than the area when it is letterboxed
+    pub fn image_bounds(&self) -> Option<Bounds<Pixels>> {
+        let (width, height) = self.dimensions?;
+
+        // Compute the image bounds using the area (measured when it's rendered) and image dimensions
+        let bounds = self.area_bounds?;
+        let image_size = size(DevicePixels(width as i32), DevicePixels(height as i32));
+
+        Some(ObjectFit::Contain.get_bounds(bounds, image_size))
     }
 }
 
@@ -30,6 +50,30 @@ impl Gallery {
     /// Image the lightbox is showing, if open
     pub fn lightbox_hash(&self) -> Option<ImageHash> {
         self.lightbox.as_ref().map(|lightbox| lightbox.hash)
+    }
+
+    /// Store the measured image area, re-rendering only when it changes
+    pub fn set_image_area_bounds(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
+        // Get the inner lightbox
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        // Only update the bounds if they have changed
+        if lightbox.area_bounds == Some(bounds) {
+            return;
+        }
+
+        lightbox.area_bounds = Some(bounds);
+        cx.notify();
+    }
+
+    /// Whether a position is within the bounds of the image itself
+    fn is_position_within_image(&self, position: Point<Pixels>) -> bool {
+        self.lightbox
+            .as_ref()
+            .and_then(|lightbox| lightbox.image_bounds())
+            .is_none_or(|bounds| bounds.contains(&position))
     }
 
     /// Render the full-size image with nav arrows, the thumbnail will render beneath while it loads
@@ -77,15 +121,18 @@ impl Gallery {
                 }))
         };
 
-        let image_view = |cx: &mut Context<'_, Self>| {
+        let image_area = |cx: &mut Context<'_, Self>| {
             div()
                 .id("image-area")
                 .relative()
-                .flex_1()
-                .min_h_0()
                 .size_full()
                 .overflow_hidden()
-                .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+                    // Clicks on the backdrop (not the image) should bubble up and close the lightbox
+                    if this.is_position_within_image(event.position()) {
+                        cx.stop_propagation();
+                    }
+                }))
                 .overflow_scrollbar()
                 .context_menu(move |menu, _, _| {
                     Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
@@ -111,6 +158,28 @@ impl Gallery {
                                 .object_fit(ObjectFit::Contain),
                         ),
                 )
+        };
+
+        let image_view = |cx: &mut Context<'_, Self>| {
+            let this = cx.entity();
+
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .size_full()
+                .child(
+                    canvas(
+                        move |bounds, _, cx| {
+                            // We need to do this weird thing here to get the bounds
+                            this.update(cx, |this, cx| this.set_image_area_bounds(bounds, cx))
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .child(image_area(cx))
         };
 
         h_flex()

@@ -106,8 +106,8 @@ pub fn build_image_entries(
         .into_par_iter()
         .progress_with(bar.clone())
         .map(|f| {
-            let hash = resolve_hash(&f, &store);
-            ImageEntry::new(f, thumb_dir, hash)
+            let (hash, dimensions) = resolve_meta(&f, &store);
+            ImageEntry::new(f, thumb_dir, hash, dimensions)
         })
         .collect::<Vec<ImageEntry>>();
 
@@ -127,6 +127,7 @@ pub fn build_image_entries(
                     size: i.bytes,
                     mtime,
                     hash: i.hash,
+                    dimensions: i.dimensions,
                 },
             ))
         })
@@ -144,16 +145,21 @@ pub fn build_image_entries(
     })
 }
 
-/// Resolve the content hash for a found file, reusing the cached value if possible, otherwise hashing from scratch
-fn resolve_hash(file: &FoundFile, store: &Store) -> u64 {
-    if let Some(hash) = store.get(&file.path, file.bytes, file.modified) {
-        return hash;
+/// Resolve the content hash and pixel dimensions
+fn resolve_meta(file: &FoundFile, store: &Store) -> (u64, Option<(u32, u32)>) {
+    // Check the store for an existing entry
+    if let Some(entry) = store.get(&file.path, file.bytes, file.modified) {
+        return (entry.hash, entry.dimensions);
     }
 
-    hash_content(&file.path).unwrap_or_else(|e| {
+    // Hash the first few KBs and read the pixel dimensions
+    let hash = hash_content(&file.path).unwrap_or_else(|e| {
         tracing::warn!(path = %file.path.display(), error = %e, "hash_content failed, falling back to hash_path");
         hash_path(&file.path)
-    })
+    });
+    let dimensions = image::read_dimensions(&file.path);
+
+    (hash, dimensions)
 }
 
 /// Generate thumbnails for the given images

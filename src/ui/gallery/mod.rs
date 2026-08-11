@@ -663,7 +663,11 @@ impl Gallery {
 
     /// Show the lightbox for an image and pause urgent grid thumbnail work
     fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        self.lightbox = Some(Lightbox::new(*hash));
+        let dimensions = self
+            .get_image_entry(hash)
+            .and_then(|entry| entry.dimensions);
+
+        self.lightbox = Some(Lightbox::new(*hash, dimensions));
         self.cancel_pending_thumbs();
         cx.notify();
     }
