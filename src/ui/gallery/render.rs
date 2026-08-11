@@ -12,8 +12,8 @@ use crate::{
     },
 };
 use gpui::{
-    AnyElement, App, Context, FocusHandle, Focusable, MouseDownEvent, ObjectFit, ScrollWheelEvent,
-    SharedString, Window, div, img, list, prelude::*, px, rems, uniform_list,
+    AnyElement, App, Context, FocusHandle, Focusable, ObjectFit, SharedString, Window, div, img,
+    list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Icon, InteractiveElementExt, Sizable as _,
@@ -691,15 +691,10 @@ impl Gallery {
             .items_center()
             .justify_center()
             .bg(gpui::rgba(COLOR_BACKDROP))
+            .occlude()
             .on_click(cx.listener(|this, _, _, cx| {
                 cx.stop_propagation();
                 this.close_lightbox(cx);
-            }))
-            .on_any_mouse_down(cx.listener(|_, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-            }))
-            .on_scroll_wheel(cx.listener(|_, _: &ScrollWheelEvent, _, cx| {
-                cx.stop_propagation();
             }))
             .cursor_default()
             .child(self.render_lightbox_content(hash, cx))
