@@ -151,7 +151,8 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.filtered_images.is_empty() {
+        // Open the lightbox if there is a single selected image, or if there are filtered images to show
+        if self.lightbox.is_some() || self.filtered_images.is_empty() {
             return;
         }
 
@@ -217,10 +218,22 @@ impl Gallery {
     }
 
     pub fn on_zoom_in(&mut self, _: &actions::ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
+        // Zoom the open image rather than the grid behind it
+        if self.lightbox.is_some() {
+            self.zoom_lightbox_in(cx);
+            return;
+        }
+
         self.zoom_grid_in(cx);
     }
 
     pub fn on_zoom_out(&mut self, _: &actions::ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
+        // Zoom the open image rather than the grid behind it
+        if self.lightbox.is_some() {
+            self.zoom_lightbox_out(cx);
+            return;
+        }
+
         self.zoom_grid_out(cx);
     }
 
@@ -230,6 +243,11 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.lightbox.is_some() {
+            self.zoom_lightbox_reset(cx);
+            return;
+        }
+
         self.column_override = None;
         cx.notify();
     }

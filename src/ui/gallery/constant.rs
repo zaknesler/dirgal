@@ -16,6 +16,13 @@ pub const GRID_OVERDRAW: f32 = 600.0;
 pub const GRID_CACHE_ITEMS: usize = 300;
 pub const LIGHTBOX_CACHE_ITEMS: usize = 10;
 
+pub const ZOOM_MIN: f32 = 0.1;
+pub const ZOOM_MAX: f32 = 20.0;
+/// Multiplier applied to the zoom level with each step in or out
+pub const ZOOM_STEP: f32 = 1.25;
+/// Zoom applied per pixel of a modifier-held scroll
+pub const ZOOM_PER_PIXEL: f32 = 0.01;
+
 pub const COLOR_ACCENT: u32 = 0xca3500;
 pub const COLOR_ACCENT_HOVER: u32 = 0xfc713f;
 pub const COLOR_BACKDROP: u32 = 0x0a0a0af0;

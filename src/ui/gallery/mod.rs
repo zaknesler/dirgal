@@ -574,7 +574,7 @@ impl Gallery {
         );
     }
 
-    /// Cancel pending grid thumbnail jobs so work yields to the lightbox
+    /// Cancel all grid thumbnail generation
     fn cancel_pending_thumbs(&mut self) {
         for hash in &self.queue {
             if matches!(self.thumbs.get(hash), Some(ThumbState::Queued)) {
@@ -661,7 +661,7 @@ impl Gallery {
         }
     }
 
-    /// Show the lightbox for an image and pause urgent grid thumbnail work
+    /// Show the lightbox with the given image and stop generating thumbnails
     fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
         let dimensions = self
             .get_image_entry(hash)

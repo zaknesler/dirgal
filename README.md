@@ -36,16 +36,14 @@ dirgal ~/Downloads ~/Pictures
 
 Some of these are completely out-of-scope and unrealistic, but would be nice to have:
 
-- ZOOM!
-- Improved filtering/searching
 - File actions (e.g. copy, rename, delete, etc.)
 - Metadata info (including EXIF data)
-- Better duplicate detection
 - Better experience when selecting multiple items
 - Stats (e.g. number of images, duplicate count, total size, num folders, etc.)
+- Improved filtering/searching
 - More keyboard navigation
 - `--no-cache` to... bypass the cache of course
-- Improved duplicate experience (it currently hides duplicate images from the main view)
+- Improved duplicate detection/experience (it currently hides duplicate images from the main view)
 - Save the hash cache periodically during a scan, not just at the end, so a big scan over a slow drive (like my really slow NAS) doesn't lose all its progress if interrupted
 - Watch mode?
 - Image tagging?
