@@ -293,7 +293,6 @@ impl Gallery {
             .w_full()
             .selected_index(page_index)
             .px_2()
-            .rounded_none()
             .on_click(cx.listener(|this, selected_index, _, cx| {
                 let (page, _, _) = Page::ALL[*selected_index];
                 this.set_page(page, cx);
@@ -475,6 +474,43 @@ impl Gallery {
             .child(controls())
     }
 
+    fn render_floating_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let should_hide = self.selected_hashes.is_empty() || self.lightbox.is_some();
+        let num_selected = self.selected_hashes.len();
+
+        h_flex()
+            .when(should_hide, |el| el.hidden())
+            .occlude()
+            .p_4()
+            .w_full()
+            .absolute()
+            .bottom_4()
+            .justify_center()
+            .shadow_2xl()
+            .child(
+                h_flex()
+                    .id("info-bar")
+                    .min_w_0()
+                    .max_w(px(750.))
+                    .w_full()
+                    .items_center()
+                    .overflow_hidden()
+                    .justify_between()
+                    .gap_3()
+                    .py_2()
+                    .px_3()
+                    .rounded_xl()
+                    .bg(cx.theme().background.opacity(0.875))
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .text_sm()
+                    .text_color(cx.theme().foreground)
+                    .cursor_default()
+                    .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                    .child(format!("{} image(s) selected", num_selected)),
+            )
+    }
+
     /// Render the placeholder shown when no images match
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
@@ -501,7 +537,8 @@ impl Gallery {
         let counter = || {
             Tag::secondary()
                 .flex_none()
-                .min_w_20()
+                .min_w_24()
+                .p_2()
                 .justify_center()
                 .child(counter)
         };
@@ -567,9 +604,8 @@ impl Gallery {
                 .overflow_hidden()
                 .justify_between()
                 .gap_3()
-                .py_2()
-                .px_3()
-                .rounded_lg()
+                .p_1p5()
+                .rounded_xl()
                 .bg(cx.theme().background)
                 .border_1()
                 .border_color(cx.theme().border)
@@ -868,5 +904,6 @@ impl Render for Gallery {
             .when_some(self.lightbox, |el, hash| {
                 el.child(self.render_lightbox(&hash, cx))
             })
+            .child(self.render_floating_actions(cx))
     }
 }
