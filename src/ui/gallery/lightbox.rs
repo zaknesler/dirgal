@@ -106,10 +106,32 @@ impl Lightbox {
         self.offset = Point::default();
     }
 
-    /// Only the hidden part of the image can be scrolled into view
-    fn clamp_offset(&mut self) {
-        let (Some(area), Some(image_size)) = (self.area_bounds, self.scaled_size()) else {
+    /// Zoom until the shorter side of the image is flush with the area, then start at its top left
+    fn fill_area(&mut self) {
+        let Some(zoom) = self.fill_zoom() else {
             return;
+        };
+
+        self.zoom = zoom.clamp(ZOOM_MIN, ZOOM_MAX);
+        self.offset = self.scroll_slack();
+    }
+
+    /// Zoom level at which the image covers the area rather than fitting inside it
+    fn fill_zoom(&self) -> Option<f32> {
+        let (width, height) = self.dimensions?;
+        let area = self.area_bounds?.size;
+
+        let scale_x = f32::from(area.width) / width as f32;
+        let scale_y = f32::from(area.height) / height as f32;
+
+        // The zoom is a multiple of the fitted size, so this is how much larger covering it is
+        Some(f32::max(scale_x, scale_y) / f32::min(scale_x, scale_y))
+    }
+
+    /// How far the image can be scrolled from center before an edge comes inside the area
+    fn scroll_slack(&self) -> Point<Pixels> {
+        let (Some(area), Some(image_size)) = (self.area_bounds, self.scaled_size()) else {
+            return Point::default();
         };
 
         // Find the hidden part of the image that cannot be scrolled into view
@@ -118,8 +140,13 @@ impl Lightbox {
             (image_size.height - area.size.height).max(px(0.)),
         );
 
-        // Clamp the offset to the hidden part of the image
-        let slack = hidden.center();
+        hidden.center()
+    }
+
+    /// Only the hidden part of the image can be scrolled into view
+    fn clamp_offset(&mut self) {
+        let slack = self.scroll_slack();
+
         self.offset = point(
             self.offset.x.clamp(-slack.x, slack.x),
             self.offset.y.clamp(-slack.y, slack.y),
@@ -174,6 +201,16 @@ impl Gallery {
         };
 
         lightbox.reset_zoom();
+        cx.notify();
+    }
+
+    /// Zoom the lightbox image until it fills its area, leaving the longer side to scroll
+    pub fn zoom_lightbox_fill(&mut self, cx: &mut Context<Self>) {
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        lightbox.fill_area();
         cx.notify();
     }
 

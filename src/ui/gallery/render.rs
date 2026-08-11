@@ -656,6 +656,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_zoom_in))
             .on_action(cx.listener(Self::on_zoom_out))
             .on_action(cx.listener(Self::on_zoom_reset))
+            .on_action(cx.listener(Self::on_zoom_fill))
             .on_action(cx.listener(Self::on_toggle_bookmark))
             .on_action(cx.listener(Self::on_copy_path_to_clipboard))
             .on_action(cx.listener(Self::on_open_in_finder))

@@ -252,6 +252,11 @@ impl Gallery {
         cx.notify();
     }
 
+    /// Fill the lightbox area with the open image
+    pub fn on_zoom_fill(&mut self, _: &actions::ZoomFill, _: &mut Window, cx: &mut Context<Self>) {
+        self.zoom_lightbox_fill(cx);
+    }
+
     pub fn on_copy_path_to_clipboard(
         &mut self,
         action: &actions::CopyPathToClipboard,
