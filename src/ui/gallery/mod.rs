@@ -837,9 +837,19 @@ impl Gallery {
 
     /// Move files to the trash and remove them from the gallery
     fn trash_files(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
-        match crate::core::path::trash_files(paths) {
-            Ok(()) => self.remove_paths_from_library(paths, cx),
-            Err(err) => tracing::warn!(?err, ?paths, "failed to trash files"),
+        let mut trashed = Vec::new();
+
+        // Trash each file individually so we can track which ones succeeded
+        for path in paths {
+            match crate::core::path::trash_file(path) {
+                Ok(()) => trashed.push(path.clone()),
+                Err(err) => tracing::warn!(?err, ?path, "failed to trash file"),
+            }
+        }
+
+        // TODO: better feedback?
+        if !trashed.is_empty() {
+            self.remove_paths_from_library(&trashed, cx);
         }
     }
 
@@ -855,6 +865,7 @@ impl Gallery {
             }
         }
 
+        // TODO: better feedback here too!
         if !deleted.is_empty() {
             self.remove_paths_from_library(&deleted, cx);
         }

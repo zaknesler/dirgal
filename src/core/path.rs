@@ -1,7 +1,6 @@
+use crate::error::AppResult;
 use gpui::SharedString;
 use std::path::{Path, PathBuf};
-
-use crate::error::AppResult;
 
 /// Expand all root directories for the given paths
 pub fn get_roots(paths: Option<Vec<String>>) -> Vec<PathBuf> {
@@ -104,8 +103,8 @@ pub fn extract_date_from_path(path: &Path) -> Option<(u32, u32, u32)> {
     })
 }
 
-/// Move the given paths to the trash
-pub fn trash_files(paths: &[PathBuf]) -> AppResult<()> {
-    trash::delete_all(paths)?;
+/// Move the given path to the trash
+pub fn trash_file(path: &Path) -> AppResult<()> {
+    trash::delete(path)?;
     Ok(())
 }
