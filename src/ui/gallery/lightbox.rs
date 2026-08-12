@@ -1,17 +1,19 @@
+// The zoom and scroll logic is ported from Zed's image_viewer crate (GPL-3.0-or-later):
+// https://github.com/zed-industries/zed/blob/daec37bdc54d3985ff2a8175fd05b73d0444d569/crates/image_viewer/src/image_viewer.rs
+
 use crate::assets::IconAsset;
 use crate::core::{image::format_bytes, path::label_for, util};
 use crate::ui::gallery::Gallery;
 use crate::ui::{gallery::constant::*, model::*};
 use gpui::{
-    Bounds, ClickEvent, Context, DevicePixels, ObjectFit, Pixels, Point, SharedString, canvas, div,
-    img, prelude::*, px, size,
+    Bounds, ClickEvent, Context, DevicePixels, ObjectFit, PinchEvent, Pixels, Point,
+    ScrollWheelEvent, SharedString, Size, Window, canvas, div, img, point, prelude::*, px, size,
 };
 use gpui_component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::ContextMenuExt,
-    scroll::ScrollableElement,
     tag::Tag,
     v_flex,
 };
@@ -23,6 +25,10 @@ pub struct Lightbox {
     pub dimensions: Option<(u32, u32)>,
     /// Bounds of the image area, measured while rendering
     pub area_bounds: Option<Bounds<Pixels>>,
+    /// Multiple of the fitted size the image is drawn at
+    pub zoom: f32,
+    /// How far the image is scrolled from the center of the area
+    pub offset: Point<Pixels>,
 }
 
 impl Lightbox {
@@ -31,18 +37,120 @@ impl Lightbox {
             hash,
             dimensions,
             area_bounds: None,
+            zoom: 1.0,
+            offset: Point::default(),
         }
     }
 
     /// Bounds of the image as drawn, which is smaller than the area when it is letterboxed
     pub fn image_bounds(&self) -> Option<Bounds<Pixels>> {
+        let area = self.area_bounds?;
+        let image_size = self.scaled_size()?;
+
+        // Center the image in the area, then shift it by however far it is scrolled
+        let origin = area.center() - image_size.center() + self.offset;
+
+        Some(Bounds {
+            origin,
+            size: image_size,
+        })
+    }
+
+    /// Bounds of the image relative to its area, where children are positioned from
+    pub fn image_bounds_in_area(&self) -> Option<Bounds<Pixels>> {
+        let bounds = self.image_bounds()?;
+
+        Some(Bounds {
+            origin: bounds.origin - self.area_bounds?.origin,
+            size: bounds.size,
+        })
+    }
+
+    /// Size of the image as drawn, fitted to the area and then scaled by the zoom level
+    fn scaled_size(&self) -> Option<Size<Pixels>> {
         let (width, height) = self.dimensions?;
 
-        // Compute the image bounds using the area (measured when it's rendered) and image dimensions
+        // Compute the fitted size using the area (measured when it's rendered) and image dimensions
         let bounds = self.area_bounds?;
         let image_size = size(DevicePixels(width as i32), DevicePixels(height as i32));
+        let fitted = ObjectFit::Contain.get_bounds(bounds, image_size).size;
 
-        Some(ObjectFit::Contain.get_bounds(bounds, image_size))
+        Some(size(fitted.width * self.zoom, fitted.height * self.zoom))
+    }
+
+    /// Scroll the image by the given delta, and stop it from moving past its own edges
+    fn scroll_by(&mut self, delta: Point<Pixels>) {
+        self.offset += delta;
+        self.clamp_offset();
+    }
+
+    /// Zoom by the given factor, optionally keeping the center position in place
+    fn zoom_by(&mut self, factor: f32, center: Option<Point<Pixels>>) {
+        let previous = self.zoom;
+        self.zoom = (self.zoom * factor).clamp(ZOOM_MIN, ZOOM_MAX);
+
+        // Shift the offset so the centered point stays put while the image grows around it
+        if let Some((center, area)) = center.zip(self.area_bounds) {
+            let ratio = self.zoom / previous;
+            let from_image = center - area.center() - self.offset;
+
+            self.offset += from_image.map(|distance| distance * (1.0 - ratio));
+        }
+
+        self.clamp_offset();
+    }
+
+    /// Drop the zoom and scroll offset, fitting the image to its area again
+    fn reset_zoom(&mut self) {
+        self.zoom = 1.0;
+        self.offset = Point::default();
+    }
+
+    /// Zoom until the shorter side of the image is flush with the area, then start at its top left
+    fn fill_area(&mut self) {
+        let Some(zoom) = self.fill_zoom() else {
+            return;
+        };
+
+        self.zoom = zoom.clamp(ZOOM_MIN, ZOOM_MAX);
+        self.offset = self.scroll_slack();
+    }
+
+    /// Zoom level at which the image covers the area rather than fitting inside it
+    fn fill_zoom(&self) -> Option<f32> {
+        let (width, height) = self.dimensions?;
+        let area = self.area_bounds?.size;
+
+        let scale_x = f32::from(area.width) / width as f32;
+        let scale_y = f32::from(area.height) / height as f32;
+
+        // The zoom is a multiple of the fitted size, so this is how much larger covering it is
+        Some(f32::max(scale_x, scale_y) / f32::min(scale_x, scale_y))
+    }
+
+    /// How far the image can be scrolled from center before an edge comes inside the area
+    fn scroll_slack(&self) -> Point<Pixels> {
+        let (Some(area), Some(image_size)) = (self.area_bounds, self.scaled_size()) else {
+            return Point::default();
+        };
+
+        // Find the hidden part of the image that cannot be scrolled into view
+        let hidden = size(
+            (image_size.width - area.size.width).max(px(0.)),
+            (image_size.height - area.size.height).max(px(0.)),
+        );
+
+        hidden.center()
+    }
+
+    /// Only the hidden part of the image can be scrolled into view
+    fn clamp_offset(&mut self) {
+        let slack = self.scroll_slack();
+
+        self.offset = point(
+            self.offset.x.clamp(-slack.x, slack.x),
+            self.offset.y.clamp(-slack.y, slack.y),
+        );
     }
 }
 
@@ -74,6 +182,86 @@ impl Gallery {
             .as_ref()
             .and_then(|lightbox| lightbox.image_bounds())
             .is_none_or(|bounds| bounds.contains(&position))
+    }
+
+    /// Zoom the lightbox image in a step
+    pub fn zoom_lightbox_in(&mut self, cx: &mut Context<Self>) {
+        self.zoom_lightbox_by(ZOOM_STEP, None, cx);
+    }
+
+    /// Zoom the lightbox image out a step
+    pub fn zoom_lightbox_out(&mut self, cx: &mut Context<Self>) {
+        self.zoom_lightbox_by(1.0 / ZOOM_STEP, None, cx);
+    }
+
+    /// Fit the lightbox image back to its area
+    pub fn zoom_lightbox_reset(&mut self, cx: &mut Context<Self>) {
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        lightbox.reset_zoom();
+        cx.notify();
+    }
+
+    /// Zoom the lightbox image until it fills its area, leaving the longer side to scroll
+    pub fn zoom_lightbox_fill(&mut self, cx: &mut Context<Self>) {
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        lightbox.fill_area();
+        cx.notify();
+    }
+
+    /// Zoom the lightbox image by a factor, optionally centered on a point
+    fn zoom_lightbox_by(
+        &mut self,
+        factor: f32,
+        center: Option<Point<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        lightbox.zoom_by(factor, center);
+        cx.notify();
+    }
+
+    /// Pan around (or zoom) the open image
+    fn on_image_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = event.delta.pixel_delta(window.line_height());
+
+        // Zoom when ctrl/cmd is pressed
+        if event.modifiers.secondary() {
+            let amount = f32::from(delta.y).abs() * ZOOM_PER_PIXEL;
+            let factor = if delta.y > px(0.) {
+                1.0 + amount
+            } else {
+                1.0 / (1.0 + amount)
+            };
+
+            self.zoom_lightbox_by(factor, Some(event.position), cx);
+            return;
+        }
+
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        lightbox.scroll_by(delta);
+        cx.notify();
+    }
+
+    /// Pinch to zoom around the center of the gesture
+    fn on_image_pinch(&mut self, event: &PinchEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.zoom_lightbox_by(1.0 + event.delta, Some(event.position), cx);
     }
 
     /// Render the full-size image with nav arrows, the thumbnail will render beneath while it loads
@@ -121,10 +309,51 @@ impl Gallery {
                 }))
         };
 
-        let image_area = |cx: &mut Context<'_, Self>| {
+        let image_bounds = self
+            .lightbox
+            .as_ref()
+            .and_then(|lightbox| lightbox.image_bounds_in_area());
+
+        let image = || {
+            div()
+                .relative()
+                .map(|el| match image_bounds {
+                    // Place the image where the zoom and scroll offset put it
+                    Some(bounds) => el
+                        .absolute()
+                        .left(bounds.origin.x)
+                        .top(bounds.origin.y)
+                        .w(bounds.size.width)
+                        .h(bounds.size.height),
+                    // Fill the area until it has been measured
+                    None => el.size_full(),
+                })
+                .when_some(thumb, |el, thumb_path| {
+                    el.child(
+                        img(thumb_path)
+                            .id("lightbox-thumb")
+                            .absolute()
+                            .size_full()
+                            .object_fit(ObjectFit::Contain),
+                    )
+                })
+                .child(
+                    img(path)
+                        .id("lightbox-image")
+                        .absolute()
+                        .size_full()
+                        .object_fit(ObjectFit::Contain),
+                )
+        };
+
+        let image_view = |cx: &mut Context<'_, Self>| {
+            let this = cx.entity();
+
             div()
                 .id("image-area")
                 .relative()
+                .flex_1()
+                .min_h_0()
                 .size_full()
                 .overflow_hidden()
                 .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
@@ -133,41 +362,11 @@ impl Gallery {
                         cx.stop_propagation();
                     }
                 }))
-                .overflow_scrollbar()
+                .on_scroll_wheel(cx.listener(Self::on_image_scroll_wheel))
+                .on_pinch(cx.listener(Self::on_image_pinch))
                 .context_menu(move |menu, _, _| {
                     Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
                 })
-                .child(
-                    div()
-                        .size_full()
-                        .relative()
-                        .when_some(thumb, |el, thumb_path| {
-                            el.child(
-                                img(thumb_path)
-                                    .id("lightbox-thumb")
-                                    .absolute()
-                                    .size_full()
-                                    .object_fit(ObjectFit::Contain),
-                            )
-                        })
-                        .child(
-                            img(path)
-                                .id("lightbox-image")
-                                .absolute()
-                                .size_full()
-                                .object_fit(ObjectFit::Contain),
-                        ),
-                )
-        };
-
-        let image_view = |cx: &mut Context<'_, Self>| {
-            let this = cx.entity();
-
-            div()
-                .relative()
-                .flex_1()
-                .min_h_0()
-                .size_full()
                 .child(
                     canvas(
                         move |bounds, _, cx| {
@@ -179,7 +378,7 @@ impl Gallery {
                     .absolute()
                     .size_full(),
                 )
-                .child(image_area(cx))
+                .child(image())
         };
 
         h_flex()

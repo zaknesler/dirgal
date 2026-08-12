@@ -20,6 +20,7 @@ actions!([
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    ZoomFill,
     PrevPage,
     NextPage,
     FocusSearch,
@@ -110,6 +111,7 @@ pub fn register_actions(cx: &mut App) {
         ("=", actions::ZoomIn),
         ("-", actions::ZoomOut),
         ("0", actions::ZoomReset),
+        ("1", actions::ZoomFill),
         ("c", actions::CollapseAll),
     );
 }
