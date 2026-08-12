@@ -2,6 +2,7 @@ use crate::ui::{model::*, *};
 use crate::{
     core::{
         hash::hash_path,
+        image::ImageId,
         util::{self},
     },
     ui::gallery::Gallery,
@@ -88,19 +89,19 @@ impl Gallery {
 
     pub fn on_thumb_click_event(
         &mut self,
-        hash: &ImageHash,
+        id: &ImageId,
         event: &ClickEvent,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if event.modifiers().secondary() && self.selected_hashes.contains(hash) {
-            self.remove_hash_from_selection(hash, cx);
+        if event.modifiers().secondary() && self.selected_images.contains(id) {
+            self.remove_image_from_selection(id, cx);
         } else if event.modifiers().secondary() {
-            self.add_hash_to_selection(hash, cx);
+            self.add_image_to_selection(id, cx);
         } else if event.modifiers().shift {
-            self.add_hashes_until_selection(hash, cx);
+            self.add_images_until_selection(id, cx);
         } else {
-            self.select_single_hash(hash, cx);
+            self.select_single_image(id, cx);
         }
 
         cx.notify();
@@ -130,7 +131,7 @@ impl Gallery {
             return;
         }
 
-        if self.selected_hashes.len() == 1 {
+        if self.selected_images.len() == 1 {
             self.select_step(-1, cx);
         }
     }
@@ -141,7 +142,7 @@ impl Gallery {
             return;
         }
 
-        if self.selected_hashes.len() == 1 {
+        if self.selected_images.len() == 1 {
             self.select_step(1, cx);
         }
     }
@@ -158,9 +159,9 @@ impl Gallery {
         }
 
         // Open currently-selected image
-        if self.selected_hashes.len() == 1 {
-            let hash = self.selected_hashes[0];
-            self.open_lightbox(&hash, cx);
+        if self.selected_images.len() == 1 {
+            let id = self.selected_images[0].clone();
+            self.open_lightbox(&id, cx);
             return;
         }
 
@@ -169,14 +170,14 @@ impl Gallery {
             self.groups
                 .iter()
                 .find(|g| !self.collapsed_groups.contains(&g.hash))
-                .and_then(|g| g.image_hashes.first())
-                .copied()
+                .and_then(|g| g.image_ids.first())
+                .cloned()
         } else {
-            self.filtered_images.first().copied()
+            self.filtered_images.first().cloned()
         };
 
-        if let Some(hash) = first {
-            self.open_lightbox(&hash, cx);
+        if let Some(id) = first {
+            self.open_lightbox(&id, cx);
         }
     }
 
@@ -267,14 +268,14 @@ impl Gallery {
     ) {
         match action {
             actions::CopyPathToClipboard::Current => {
-                if let Some(hash) = self.lightbox_hash() {
-                    self.copy_path_to_clipboard(&hash, cx);
-                } else if !self.selected_hashes.is_empty() {
+                if let Some(id) = self.lightbox_image_id().cloned() {
+                    self.copy_path_to_clipboard(id.path(), cx);
+                } else if !self.selected_images.is_empty() {
                     self.copy_selected_paths_to_clipboard(cx);
                 }
             }
-            actions::CopyPathToClipboard::Hash(hash) => {
-                self.copy_path_to_clipboard(hash, cx);
+            actions::CopyPathToClipboard::Path(path) => {
+                self.copy_path_to_clipboard(path, cx);
             }
         }
     }
@@ -342,13 +343,17 @@ impl Gallery {
         cx: &mut Context<Self>,
     ) {
         let old_pos = self
-            .lightbox_hash()
-            .and_then(|hash| self.get_visible_position(&hash));
+            .lightbox_image_id()
+            .and_then(|id| self.get_visible_position(id));
 
         match action {
             actions::Bookmark::Current => {
-                if let Some(hash) = self.lightbox_hash() {
-                    self.toggle_bookmark(&hash, cx);
+                if let Some(content_hash) = self
+                    .lightbox_image_id()
+                    .and_then(|id| self.get_image_entry(id))
+                    .map(|entry| entry.content_hash)
+                {
+                    self.toggle_bookmark(&content_hash, cx);
                 }
             }
             actions::Bookmark::Hash(hash) => {
@@ -360,12 +365,12 @@ impl Gallery {
         if self.page == Page::Bookmarks {
             if self.filtered_images.is_empty() {
                 self.close_lightbox(cx);
-            } else if let Some(current) = self.lightbox_hash() {
+            } else if let Some(current) = self.lightbox_image_id().cloned() {
                 if self.get_visible_position(&current).is_some() {
                     self.step(1, cx);
                 } else if let Some(pos) = old_pos {
                     // Current image was unbookmarked; the next one slid into its slot
-                    let next = self.filtered_images[pos % self.filtered_images.len()];
+                    let next = self.filtered_images[pos % self.filtered_images.len()].clone();
                     self.open_lightbox(&next, cx);
                 }
             }
@@ -380,10 +385,7 @@ impl Gallery {
         _cx: &mut Context<Self>,
     ) {
         let path = match action {
-            actions::OpenInFinder::Current => self
-                .lightbox_hash()
-                .and_then(|hash| self.get_image_entry(&hash))
-                .map(|e| e.src_path.to_path_buf()),
+            actions::OpenInFinder::Current => self.lightbox_image_id().map(ImageId::to_path_buf),
             actions::OpenInFinder::Path(p) => Some(p.clone()),
         };
 
@@ -399,9 +401,14 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(entry) = self.get_image_entry(hash) {
+        let Some(entry) = self.library.primary_for_content(hash) else {
+            return;
+        };
+        let id = entry.id.clone();
+        {
             let parent = entry
-                .src_path
+                .id
+                .path()
                 .parent()
                 .unwrap_or(Path::new(""))
                 .to_path_buf();
@@ -410,10 +417,10 @@ impl Gallery {
 
         self.page = Page::Gallery;
         self.close_lightbox(cx);
-        self.select_single_hash(hash, cx);
+        self.select_single_image(&id, cx);
         self.reflow(cx);
 
-        self.scroll_to_hash(hash);
+        self.scroll_to_image(&id);
 
         cx.notify();
     }

@@ -1,7 +1,7 @@
 use crate::core::{
     config::Settings,
     hash::hash_path,
-    image::{ImageEntry, SMALL_FILE_BYTES},
+    image::{ContentHash, ImageEntry, ImageId, SMALL_FILE_BYTES},
     store::Store,
 };
 use crate::ui::{gallery::constant::*, model::*, *};
@@ -40,7 +40,7 @@ pub struct Gallery {
 
     // Data
     library: Library,
-    filtered_images: Vec<ImageHash>,
+    filtered_images: Vec<ImageId>,
     rows: Vec<Row>,
     groups: Vec<Group>,
     collapsed_groups: HashSet<GroupHash>,
@@ -50,12 +50,12 @@ pub struct Gallery {
     tile_size: f32,
     num_columns: usize,
     column_override: Option<usize>,
-    active_hash: Option<ImageHash>,
-    selected_hashes: Vec<ImageHash>,
+    active_image: Option<ImageId>,
+    selected_images: Vec<ImageId>,
 
     // Thumbnails
-    thumbs: HashMap<ImageHash, ThumbState>,
-    queue: VecDeque<ImageHash>,
+    thumbs: HashMap<ContentHash, ThumbState>,
+    queue: VecDeque<ContentHash>,
     num_running: usize,
     num_concurrency: usize,
 }
@@ -128,8 +128,8 @@ impl Gallery {
             tile_size: GRID_TILE_MIN,
             num_columns: 1,
             column_override: None,
-            active_hash: None,
-            selected_hashes: Vec::new(),
+            active_image: None,
+            selected_images: Vec::new(),
             thumbs: HashMap::new(),
             queue: VecDeque::new(),
             num_running: 0,
@@ -143,7 +143,7 @@ impl Gallery {
     /// Set the current page
     fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
-        self.selected_hashes = Vec::new();
+        self.selected_images = Vec::new();
         self.close_lightbox(cx);
         self.reflow(cx);
     }
@@ -228,22 +228,27 @@ impl Gallery {
         );
     }
 
-    /// Hashes for the current page in sort key order filtered by a case insensitive path search
-    fn get_visible_hashes(&self, query: &str) -> Vec<ImageHash> {
-        // self.library.bookmarks is always kept in image sort order
-        let candidates: Vec<ImageHash> = match self.page {
+    /// Image IDs for the current page in sort order filtered by a case insensitive path search
+    fn get_visible_image_ids(&self, query: &str) -> Vec<ImageId> {
+        let candidates: Vec<ImageId> = match self.page {
             Page::Gallery => self
                 .library
                 .images
                 .iter()
-                .map(|e| ImageHash(e.hash))
+                .map(|entry| entry.id.clone())
                 .collect(),
-            Page::Bookmarks => self.library.bookmarks.clone(),
+            Page::Bookmarks => self
+                .library
+                .images
+                .iter()
+                .filter(|entry| self.library.bookmarks.contains(&entry.content_hash))
+                .map(|entry| entry.id.clone())
+                .collect(),
             Page::Duplicates => self
                 .library
                 .duplicates
                 .iter()
-                .map(|e| ImageHash(e.hash))
+                .map(|entry| entry.id.clone())
                 .collect(),
         };
 
@@ -254,15 +259,15 @@ impl Gallery {
         let query = query.to_lowercase();
         let keywords: HashSet<&str> = query.split_whitespace().collect();
 
-        let mut matches: Vec<ImageHash> = Vec::new();
+        let mut matches: Vec<ImageId> = Vec::new();
 
-        for hash in candidates {
-            if let Some(image) = self.get_image_entry(&hash) {
-                let path = image.src_path.to_string_lossy().to_lowercase();
+        for id in candidates {
+            if let Some(image) = self.get_image_entry(&id) {
+                let path = image.id.path().to_string_lossy().to_lowercase();
 
                 // Must contain all keywords
                 if keywords.iter().all(|k| path.contains(k)) {
-                    matches.push(hash);
+                    matches.push(id);
                 }
             }
         }
@@ -274,18 +279,18 @@ impl Gallery {
     fn get_computed_groups(&self) -> Vec<Group> {
         let mut groups: Vec<Group> = Vec::new();
 
-        for &hash in &self.filtered_images {
+        for id in &self.filtered_images {
             let parent = self
-                .get_image_entry(&hash)
-                .and_then(|e| e.src_path.parent())
+                .get_image_entry(id)
+                .and_then(|entry| entry.id.path().parent())
                 .unwrap_or(Path::new(""));
 
             match groups.last_mut() {
-                Some(group) if group.path == parent => group.image_hashes.push(hash),
+                Some(group) if group.path == parent => group.image_ids.push(id.clone()),
                 _ => groups.push(Group {
                     hash: GroupHash(hash_path(parent)),
                     path: parent.to_path_buf(),
-                    image_hashes: vec![hash],
+                    image_ids: vec![id.clone()],
                 }),
             }
         }
@@ -294,43 +299,39 @@ impl Gallery {
     }
 
     /// Index of an image within the current filtered set
-    fn get_visible_position(&self, hash: &ImageHash) -> Option<usize> {
-        self.filtered_images.iter().position(|&i| i == *hash)
+    fn get_visible_position(&self, id: &ImageId) -> Option<usize> {
+        self.filtered_images.iter().position(|item| item == id)
     }
 
-    /// Look up an image entry by content hash
-    fn get_image_entry(&self, hash: &ImageHash) -> Option<&ImageEntry> {
-        if self.page == Page::Duplicates {
-            let hash = self.library.duplicate_index.get(hash)?;
-            return self.library.duplicates.get(*hash);
-        }
-
-        let hash = self.library.image_index.get(hash)?;
-        self.library.images.get(*hash)
+    /// Look up an image entry by file identity
+    fn get_image_entry(&self, id: &ImageId) -> Option<&ImageEntry> {
+        self.library.get(id)
     }
 
     /// Get displayable path for a thumbnail from already-known state, without triggering generation
-    fn peek_thumb_path(&self, hash: &ImageHash) -> Option<Arc<Path>> {
-        match self.thumbs.get(hash) {
+    fn peek_thumb_path(&self, id: &ImageId) -> Option<Arc<Path>> {
+        let entry = self.get_image_entry(id)?;
+        match self.thumbs.get(&entry.content_hash) {
             Some(ThumbState::Ready(p)) => Some(p.clone()),
-            Some(ThumbState::Failed) => self.get_image_entry(hash).map(|e| e.src_path.clone()),
+            Some(ThumbState::Failed) => Some(entry.id.clone_path()),
             _ => None,
         }
     }
 
     /// Resolve or queue a thumbnail for a single image, returning true if its state changed
-    fn enqueue_thumb(&mut self, hash: ImageHash) -> bool {
+    fn enqueue_thumb(&mut self, id: &ImageId) -> bool {
+        let Some(entry) = self.get_image_entry(id).cloned() else {
+            return false;
+        };
+        let hash = entry.content_hash;
+
         if !matches!(self.thumbs.get(&hash), None | Some(ThumbState::Unknown)) {
             return false;
         }
 
-        let Some(entry) = self.get_image_entry(&hash).cloned() else {
-            return false;
-        };
-
         if entry.bytes < SMALL_FILE_BYTES {
             self.thumbs
-                .insert(hash, ThumbState::Ready(entry.src_path.clone()));
+                .insert(hash, ThumbState::Ready(entry.id.clone_path()));
         } else if entry.thumb_path.exists() {
             self.thumbs
                 .insert(hash, ThumbState::Ready(entry.thumb_path.clone()));
@@ -359,17 +360,18 @@ impl Gallery {
         let start = anchor.min(len.saturating_sub(count));
         let end = (start + count).min(len);
 
-        let visible: HashSet<ImageHash> = self.rows[start..end]
+        let visible: HashSet<ContentHash> = self.rows[start..end]
             .iter()
             .filter_map(|row| match row {
                 Row::Tiles(range) => Some(self.filtered_images[range.clone()].to_vec()),
                 Row::Header(_) => None,
             })
             .flatten()
+            .filter_map(|id| self.get_image_entry(&id).map(|entry| entry.content_hash))
             .collect();
 
         // Cancel jobs for rows that have scrolled out of view before they start
-        let stale: Vec<ImageHash> = self
+        let stale: Vec<ContentHash> = self
             .queue
             .iter()
             .filter(|hash| !visible.contains(hash))
@@ -384,7 +386,10 @@ impl Gallery {
 
         let mut changed = false;
         for hash in visible {
-            changed |= self.enqueue_thumb(hash);
+            if let Some(entry) = self.library.primary_for_content(&hash) {
+                let id = entry.id.clone();
+                changed |= self.enqueue_thumb(&id);
+            }
         }
 
         if changed {
@@ -393,7 +398,7 @@ impl Gallery {
     }
 
     /// Pop queued jobs until one is still pending, skipping stale entries
-    fn next_queued_thumb(&mut self) -> Option<ImageHash> {
+    fn next_queued_thumb(&mut self) -> Option<ContentHash> {
         loop {
             let image = self.queue.pop_front()?;
             if matches!(self.thumbs.get(&image), Some(ThumbState::Queued)) {
@@ -425,10 +430,10 @@ impl Gallery {
             };
 
             self.thumbs.insert(hash, ThumbState::Generating);
-            let image = self
-                .get_image_entry(&hash)
-                .expect("image should exist")
-                .clone();
+            let Some(image) = self.library.primary_for_content(&hash).cloned() else {
+                self.thumbs.remove(&hash);
+                continue;
+            };
 
             self.num_running += 1;
 
@@ -450,7 +455,7 @@ impl Gallery {
     /// Record a job's outcome, then pull more work from the queue
     fn handle_thumb_generation(
         &mut self,
-        hash: ImageHash,
+        hash: ContentHash,
         result: crate::error::AppResult<()>,
         cx: &mut Context<Self>,
     ) {
@@ -458,13 +463,19 @@ impl Gallery {
 
         let state = match result {
             Ok(_) => {
-                let entry = self.get_image_entry(&hash).expect("image should exist");
+                let Some(entry) = self.library.primary_for_content(&hash) else {
+                    self.thumbs.remove(&hash);
+                    self.process_queue(cx);
+                    cx.notify();
+                    return;
+                };
                 ThumbState::Ready(entry.thumb_path.clone())
             }
             Err(err) => {
                 let path = self
-                    .get_image_entry(&hash)
-                    .map(|e| e.src_path.display().to_string())
+                    .library
+                    .primary_for_content(&hash)
+                    .map(|entry| entry.id.path().display().to_string())
                     .unwrap_or_default();
                 tracing::warn!(path, error = %err, "thumbnail generation failed");
                 ThumbState::Failed
@@ -490,45 +501,43 @@ impl Gallery {
 
     /// Remove source paths from scanner state, then rebuild state/index
     fn remove_paths_from_library(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
-        let removed_hashes = self.remove_paths_from_scanner(paths, cx);
+        let removed_ids = self.remove_paths_from_scanner(paths, cx);
         self.rebuild_library_from_state(cx);
-        self.prune_removed_images(&removed_hashes);
+        self.prune_removed_images(&removed_ids);
         self.reflow(cx);
     }
 
-    /// Remove source paths from scanner state and return their content hashes
+    /// Remove source paths from scanner state and return their image IDs
     fn remove_paths_from_scanner(
         &mut self,
         paths: &[PathBuf],
         cx: &mut Context<Self>,
-    ) -> HashSet<ImageHash> {
+    ) -> HashSet<ImageId> {
         self.state
             .update(cx, |state, _| state.scanner.remove_paths(paths))
-            .into_iter()
-            .map(ImageHash)
-            .collect()
     }
 
     /// Clear transient UI state associated with removed or no longer loaded images
-    fn prune_removed_images(&mut self, removed_hashes: &HashSet<ImageHash>) {
+    fn prune_removed_images(&mut self, removed_ids: &HashSet<ImageId>) {
         let library = &self.library;
-        self.selected_hashes
-            .retain(|hash| !removed_hashes.contains(hash) && library.contains(hash));
+        self.selected_images
+            .retain(|id| !removed_ids.contains(id) && library.contains_id(id));
         if self
-            .active_hash
-            .is_some_and(|hash| removed_hashes.contains(&hash) || !library.contains(&hash))
+            .active_image
+            .as_ref()
+            .is_some_and(|id| removed_ids.contains(id) || !library.contains_id(id))
         {
-            self.active_hash = None;
+            self.active_image = None;
         }
         if self
-            .lightbox_hash()
-            .is_some_and(|hash| removed_hashes.contains(&hash) || !library.contains(&hash))
+            .lightbox_image_id()
+            .is_some_and(|id| removed_ids.contains(id) || !library.contains_id(id))
         {
             self.lightbox = None;
         }
 
-        self.queue.retain(|hash| library.contains(hash));
-        self.thumbs.retain(|hash, _| library.contains(hash));
+        self.queue.retain(|hash| library.contains_content(hash));
+        self.thumbs.retain(|hash, _| library.contains_content(hash));
     }
 
     /// Refresh the library in the background
@@ -567,7 +576,7 @@ impl Gallery {
     /// Rebuild filtered images, groups, and rows for the current page and query
     fn reflow(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
-        let mut filtered = self.get_visible_hashes(&query);
+        let mut filtered = self.get_visible_image_ids(&query);
 
         // Grouped view needs same directory images contiguous and a stable sort by parent
         // keeps their sort key order within each group intact
@@ -590,7 +599,7 @@ impl Gallery {
             let mut offset = 0;
             for group in &self.groups {
                 self.rows.push(Row::Header(group.hash));
-                let len = group.image_hashes.len();
+                let len = group.image_ids.len();
                 if !self.collapsed_groups.contains(&group.hash) {
                     self.rows.extend(Row::chunk_tiles(offset, len, cols));
                 }
@@ -644,63 +653,61 @@ impl Gallery {
     }
 
     /// Mark the given image as selected, deselecting any other items
-    fn select_single_hash(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        self.selected_hashes.clear();
-        self.selected_hashes.push(*hash);
-        self.active_hash = Some(*hash);
+    fn select_single_image(&mut self, id: &ImageId, cx: &mut Context<Self>) {
+        self.selected_images.clear();
+        self.selected_images.push(id.clone());
+        self.active_image = Some(id.clone());
         cx.notify();
     }
 
     /// Add the given image to the current selection
-    fn add_hash_to_selection(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        self.selected_hashes.push(*hash);
-        self.active_hash = Some(*hash);
+    fn add_image_to_selection(&mut self, id: &ImageId, cx: &mut Context<Self>) {
+        self.selected_images.push(id.clone());
+        self.active_image = Some(id.clone());
         cx.notify();
     }
 
     /// Remove the given image from the current selection
-    fn remove_hash_from_selection(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        if let Some(index) = self.selected_hashes.iter().position(|h| h == hash) {
-            self.selected_hashes.swap_remove(index);
-            self.active_hash = Some(*hash);
+    fn remove_image_from_selection(&mut self, id: &ImageId, cx: &mut Context<Self>) {
+        if let Some(index) = self.selected_images.iter().position(|item| item == id) {
+            self.selected_images.swap_remove(index);
+            self.active_image = Some(id.clone());
             cx.notify();
         }
     }
 
-    /// Add all images between the current active hash and the given hash to the selection
-    fn add_hashes_until_selection(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        if let Some(index) = self.filtered_images.iter().position(|h| h == hash) {
-            if let Some(active_hash) = self.active_hash {
-                // Get the index of the current active hash
+    /// Add all images between the active image and the given image to the selection
+    fn add_images_until_selection(&mut self, id: &ImageId, cx: &mut Context<Self>) {
+        if let Some(index) = self.filtered_images.iter().position(|item| item == id) {
+            if let Some(active_image) = &self.active_image {
                 let active_index = self
                     .filtered_images
                     .iter()
-                    .position(|h| *h == active_hash)
+                    .position(|item| item == active_image)
                     .unwrap_or(0);
 
-                // Add images between the current active hash and the given hash to the selection
                 if active_index > index {
-                    self.selected_hashes
-                        .extend(self.filtered_images[index..=active_index].iter().copied());
+                    self.selected_images
+                        .extend(self.filtered_images[index..=active_index].iter().cloned());
                 } else {
-                    self.selected_hashes
-                        .extend(self.filtered_images[active_index..=index].iter().copied());
+                    self.selected_images
+                        .extend(self.filtered_images[active_index..=index].iter().cloned());
                 }
 
-                self.active_hash = Some(*hash);
+                self.active_image = Some(id.clone());
 
                 cx.notify();
             } else {
-                self.select_single_hash(hash, cx);
+                self.select_single_image(id, cx);
             }
         }
     }
 
-    /// Reveal the given hash within the current view
-    fn scroll_to_hash(&mut self, hash: &ImageHash) {
+    /// Reveal the given image within the current view
+    fn scroll_to_image(&mut self, id: &ImageId) {
         // TODO: only "scroll" if it's not already in view
 
-        if let Some(row_ix) = self.get_visible_position(hash).and_then(|pos| {
+        if let Some(row_ix) = self.get_visible_position(id).and_then(|pos| {
             self.rows.iter().position(|row| match row {
                 Row::Tiles(range) => range.contains(&pos),
                 Row::Header(_) => false,
@@ -714,12 +721,10 @@ impl Gallery {
     }
 
     /// Show the lightbox with the given image and stop generating thumbnails
-    fn open_lightbox(&mut self, hash: &ImageHash, cx: &mut Context<Self>) {
-        let dimensions = self
-            .get_image_entry(hash)
-            .and_then(|entry| entry.dimensions);
+    fn open_lightbox(&mut self, id: &ImageId, cx: &mut Context<Self>) {
+        let dimensions = self.get_image_entry(id).and_then(|entry| entry.dimensions);
 
-        self.lightbox = Some(Lightbox::new(*hash, dimensions));
+        self.lightbox = Some(Lightbox::new(id.clone(), dimensions));
         self.cancel_pending_thumbs();
         cx.notify();
     }
@@ -735,7 +740,7 @@ impl Gallery {
         if self.filtered_images.is_empty() {
             return;
         }
-        let Some(current) = self.lightbox_hash() else {
+        let Some(current) = self.lightbox_image_id().cloned() else {
             return;
         };
 
@@ -744,7 +749,7 @@ impl Gallery {
 
         let len = self.filtered_images.len();
         let new_pos_index = new_pos.rem_euclid(len as isize) as usize;
-        let next = self.filtered_images[new_pos_index];
+        let next = self.filtered_images[new_pos_index].clone();
 
         self.open_lightbox(&next, cx);
     }
@@ -752,24 +757,24 @@ impl Gallery {
     /// Select the next or previous image in the filtered set
     fn select_step(&mut self, delta: isize, cx: &mut Context<Self>) {
         // Only change single selections
-        if self.selected_hashes.len() != 1 {
+        if self.selected_images.len() != 1 {
             return;
         }
 
-        let selected_hash = self
-            .selected_hashes
+        let selected_image = self
+            .selected_images
             .first()
             .expect("image should be selected");
 
         let pos = self
-            .get_visible_position(selected_hash)
+            .get_visible_position(selected_image)
             .expect("image should exist") as isize;
 
-        let next_hash_index = (pos + delta).rem_euclid(self.filtered_images.len() as isize);
+        let next_index = (pos + delta).rem_euclid(self.filtered_images.len() as isize);
 
-        let new_hash = self.filtered_images[next_hash_index as usize];
-        self.select_single_hash(&new_hash, cx);
-        self.scroll_to_hash(&new_hash);
+        let new_image = self.filtered_images[next_index as usize].clone();
+        self.select_single_image(&new_image, cx);
+        self.scroll_to_image(&new_image);
     }
 
     /// Collapse or expand a directory group
@@ -782,11 +787,11 @@ impl Gallery {
     }
 
     /// Add or remove a bookmark and persist the change
-    fn toggle_bookmark(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
-        if let Some(index) = self.get_bookmark_index(image_hash) {
+    fn toggle_bookmark(&mut self, content_hash: &ContentHash, cx: &mut Context<Self>) {
+        if let Some(index) = self.get_bookmark_index(content_hash) {
             self.library.bookmarks.remove(index);
         } else {
-            self.library.bookmarks.push(*image_hash);
+            self.library.bookmarks.push(*content_hash);
         }
 
         self.persist_bookmarks(cx);
@@ -796,7 +801,12 @@ impl Gallery {
     /// Sync bookmarks into the shared scanner state and persist to the store file
     fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
         let current: HashSet<u64> = self.library.bookmarks.iter().map(|hash| hash.0).collect();
-        let loaded: HashSet<u64> = self.library.images.iter().map(|image| image.hash).collect();
+        let loaded: HashSet<u64> = self
+            .library
+            .images
+            .iter()
+            .map(|image| image.content_hash.0)
+            .collect();
 
         // Merge into scanner state, only touching loaded hashes to retain other directories' bookmarks
         self.state.update(cx, |state, _cx| {
@@ -851,47 +861,33 @@ impl Gallery {
     }
 
     /// Resolve the open image or current selection to source paths
-    /// TODO: get rid of this and make all images unique by path not hash
     fn current_image_paths(&self) -> Vec<PathBuf> {
-        // If the lightbox is open just use the open image
-        if let Some(hash) = self.lightbox_hash() {
-            return self
-                .get_image_entry(&hash)
-                .map(|image| vec![image.src_path.to_path_buf()])
-                .unwrap_or_default();
+        if let Some(id) = self.lightbox_image_id() {
+            return vec![id.to_path_buf()];
         }
 
-        // Otherwise use all selected hashes in the gallery
-        self.selected_hashes
+        self.selected_images
             .iter()
-            .filter_map(|hash| {
-                self.get_image_entry(hash)
-                    .map(|image| image.src_path.to_path_buf())
-            })
+            .map(ImageId::to_path_buf)
             .collect()
     }
 
     /// Copy the path of the given image to the clipboard
-    fn copy_path_to_clipboard(&mut self, image_hash: &ImageHash, cx: &mut Context<Self>) {
-        if let Some(image) = self.get_image_entry(image_hash) {
-            let path = image.src_path.to_string_lossy().to_string();
-            cx.write_to_clipboard(ClipboardItem::new_string(path));
-        }
+    fn copy_path_to_clipboard(&mut self, path: &Path, cx: &mut Context<Self>) {
+        let path = path.to_string_lossy().to_string();
+        cx.write_to_clipboard(ClipboardItem::new_string(path));
     }
 
     /// Copy the paths of all selected images to the clipboard
     fn copy_selected_paths_to_clipboard(&mut self, cx: &mut Context<Self>) {
-        if self.selected_hashes.is_empty() {
+        if self.selected_images.is_empty() {
             return;
         }
 
         let paths: Vec<String> = self
-            .selected_hashes
+            .selected_images
             .iter()
-            .filter_map(|h| {
-                let image = self.get_image_entry(h)?;
-                Some(image.src_path.to_string_lossy().to_string())
-            })
+            .map(|id| id.path().to_string_lossy().to_string())
             .collect();
 
         cx.write_to_clipboard(ClipboardItem::new_string(paths.join("\n")));
@@ -912,7 +908,10 @@ impl Gallery {
     }
 
     /// Position of an image in the bookmark list, if bookmarked
-    fn get_bookmark_index(&self, image_hash: &ImageHash) -> Option<usize> {
-        self.library.bookmarks.iter().position(|h| h == image_hash)
+    fn get_bookmark_index(&self, content_hash: &ContentHash) -> Option<usize> {
+        self.library
+            .bookmarks
+            .iter()
+            .position(|hash| hash == content_hash)
     }
 }

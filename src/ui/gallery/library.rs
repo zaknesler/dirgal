@@ -1,4 +1,4 @@
-use crate::core::image::ImageEntry;
+use crate::core::image::{ContentHash, ImageEntry, ImageId};
 use crate::ui::{model::*, state};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -6,10 +6,11 @@ use std::path::PathBuf;
 pub struct Library {
     pub roots: Vec<PathBuf>,
     pub images: Vec<ImageEntry>,
-    pub image_index: HashMap<ImageHash, usize>,
+    pub image_index: HashMap<ImageId, usize>,
     pub duplicates: Vec<ImageEntry>,
-    pub duplicate_index: HashMap<ImageHash, usize>,
-    pub bookmarks: Vec<ImageHash>,
+    pub duplicate_index: HashMap<ImageId, usize>,
+    pub primary_content_index: HashMap<ContentHash, usize>,
+    pub bookmarks: Vec<ContentHash>,
 }
 
 impl Library {
@@ -21,6 +22,7 @@ impl Library {
             image_index: HashMap::new(),
             duplicates: Vec::new(),
             duplicate_index: HashMap::new(),
+            primary_content_index: HashMap::new(),
             bookmarks: Vec::new(),
         }
     }
@@ -33,13 +35,18 @@ impl Library {
         let image_index = images
             .iter()
             .enumerate()
-            .map(|(i, e)| (ImageHash(e.hash), i))
+            .map(|(i, e)| (e.id.clone(), i))
             .collect();
 
         let duplicate_index = duplicates
             .iter()
             .enumerate()
-            .map(|(i, e)| (ImageHash(e.hash), i))
+            .map(|(i, e)| (e.id.clone(), i))
+            .collect();
+        let primary_content_index = images
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.content_hash, i))
             .collect();
 
         let bookmarks = crate::core::image::resolve_bookmarks(&state.scanner.bookmarks, &images);
@@ -50,6 +57,7 @@ impl Library {
             image_index,
             duplicates,
             duplicate_index,
+            primary_content_index,
             bookmarks,
         }
     }
@@ -63,14 +71,39 @@ impl Library {
             .images
             .iter()
             .enumerate()
-            .map(|(i, e)| (ImageHash(e.hash), i))
+            .map(|(i, e)| (e.id.clone(), i))
+            .collect();
+        self.primary_content_index = self
+            .images
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.content_hash, i))
             .collect();
 
         self.bookmarks = crate::core::image::resolve_bookmarks(bookmarks, &self.images);
     }
 
-    /// Whether any loaded image has the given content hash
-    pub fn contains(&self, hash: &ImageHash) -> bool {
-        self.image_index.contains_key(hash) || self.duplicate_index.contains_key(hash)
+    pub fn get(&self, id: &ImageId) -> Option<&ImageEntry> {
+        if let Some(index) = self.image_index.get(id) {
+            self.images.get(*index)
+        } else {
+            self.duplicate_index
+                .get(id)
+                .and_then(|index| self.duplicates.get(*index))
+        }
+    }
+
+    pub fn primary_for_content(&self, hash: &ContentHash) -> Option<&ImageEntry> {
+        self.primary_content_index
+            .get(hash)
+            .and_then(|index| self.images.get(*index))
+    }
+
+    pub fn contains_id(&self, id: &ImageId) -> bool {
+        self.image_index.contains_key(id) || self.duplicate_index.contains_key(id)
+    }
+
+    pub fn contains_content(&self, hash: &ContentHash) -> bool {
+        self.primary_content_index.contains_key(hash)
     }
 }

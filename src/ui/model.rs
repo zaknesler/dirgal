@@ -1,10 +1,7 @@
-use crate::assets::IconAsset;
+use crate::{assets::IconAsset, core::image::ImageId};
 use gpui::ElementId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
-pub struct ImageHash(pub u64);
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct GroupHash(pub u64);
@@ -114,7 +111,7 @@ impl Row {
 pub struct Group {
     pub hash: GroupHash,
     pub path: PathBuf,
-    pub image_hashes: Vec<ImageHash>,
+    pub image_ids: Vec<ImageId>,
 }
 
 #[derive(Clone)]

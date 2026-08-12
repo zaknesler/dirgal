@@ -1,5 +1,8 @@
 use crate::{
-    core::{image::ImageEntry, pipeline},
+    core::{
+        image::{ImageEntry, ImageId},
+        pipeline,
+    },
     error::AppResult,
 };
 use std::{
@@ -41,20 +44,20 @@ impl ImageScanner {
     }
 
     /// Remove images at the given paths and return their content hashes
-    pub fn remove_paths(&mut self, paths: &[PathBuf]) -> HashSet<u64> {
+    pub fn remove_paths(&mut self, paths: &[PathBuf]) -> HashSet<ImageId> {
         let paths: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
-        let mut removed_hashes = HashSet::new();
+        let mut removed_ids = HashSet::new();
 
         self.images.retain(|image| {
-            if paths.contains(image.src_path.as_ref()) {
-                removed_hashes.insert(image.hash);
+            if paths.contains(image.id.path()) {
+                removed_ids.insert(image.id.clone());
                 false
             } else {
                 true
             }
         });
 
-        removed_hashes
+        removed_ids
     }
 
     /// Collect files and conver to image entries

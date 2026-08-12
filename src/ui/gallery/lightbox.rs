@@ -2,7 +2,11 @@
 // https://github.com/zed-industries/zed/blob/daec37bdc54d3985ff2a8175fd05b73d0444d569/crates/image_viewer/src/image_viewer.rs
 
 use crate::assets::IconAsset;
-use crate::core::{image::format_bytes, path::label_for, util};
+use crate::core::{
+    image::{ImageId, format_bytes},
+    path::label_for,
+    util,
+};
 use crate::ui::gallery::Gallery;
 use crate::ui::{gallery::constant::*, model::*};
 use gpui::{
@@ -20,7 +24,7 @@ use gpui_component::{
 
 pub struct Lightbox {
     /// Image being shown
-    pub hash: ImageHash,
+    pub image_id: ImageId,
     /// Pixel dimensions of that image, if they could be read
     pub dimensions: Option<(u32, u32)>,
     /// Bounds of the image area, measured while rendering
@@ -32,9 +36,9 @@ pub struct Lightbox {
 }
 
 impl Lightbox {
-    pub fn new(hash: ImageHash, dimensions: Option<(u32, u32)>) -> Self {
+    pub fn new(image_id: ImageId, dimensions: Option<(u32, u32)>) -> Self {
         Self {
-            hash,
+            image_id,
             dimensions,
             area_bounds: None,
             zoom: 1.0,
@@ -156,8 +160,8 @@ impl Lightbox {
 
 impl Gallery {
     /// Image the lightbox is showing, if open
-    pub fn lightbox_hash(&self) -> Option<ImageHash> {
-        self.lightbox.as_ref().map(|lightbox| lightbox.hash)
+    pub fn lightbox_image_id(&self) -> Option<&ImageId> {
+        self.lightbox.as_ref().map(|lightbox| &lightbox.image_id)
     }
 
     /// Store the measured image area, re-rendering only when it changes
@@ -265,23 +269,19 @@ impl Gallery {
     }
 
     /// Render the full-size image with nav arrows, the thumbnail will render beneath while it loads
-    fn render_lightbox_content(
-        &self,
-        hash: &ImageHash,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let entry = self.get_image_entry(hash).expect("image should exist");
-        let path = entry.src_path.clone();
+    fn render_lightbox_content(&self, id: &ImageId, cx: &mut Context<Self>) -> impl IntoElement {
+        let entry = self.get_image_entry(id).expect("image should exist");
+        let path = entry.id.clone_path();
 
-        let thumb = match self.thumbs.get(hash) {
-            Some(ThumbState::Ready(p)) if *p != entry.src_path => Some(p.clone()),
+        let thumb = match self.thumbs.get(&entry.content_hash) {
+            Some(ThumbState::Ready(p)) if p.as_ref() != entry.id.path() => Some(p.clone()),
             _ => None,
         };
 
-        let hash = *hash;
-        let is_bookmarked = self.get_bookmark_index(&hash).is_some();
+        let content_hash = entry.content_hash;
+        let is_bookmarked = self.get_bookmark_index(&content_hash).is_some();
         let page = self.page;
-        let src_path = entry.src_path.to_path_buf();
+        let src_path = entry.id.to_path_buf();
 
         let prev_button = |cx: &mut Context<'_, Self>| {
             Button::new("prev-arrow")
@@ -365,7 +365,7 @@ impl Gallery {
                 .on_scroll_wheel(cx.listener(Self::on_image_scroll_wheel))
                 .on_pinch(cx.listener(Self::on_image_pinch))
                 .context_menu(move |menu, _, _| {
-                    Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
+                    Self::image_context_menu(menu, content_hash, is_bookmarked, page, &src_path)
                 })
                 .child(
                     canvas(
@@ -394,7 +394,7 @@ impl Gallery {
     }
 
     /// Render the fullscreen lightbox overlay with backdrop and info bar
-    pub fn render_lightbox(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
+    pub fn render_lightbox(&self, id: &ImageId, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .image_cache(super::cache::simple_lru_cache(
                 super::CONTEXT_LIGHTBOX,
@@ -413,17 +413,17 @@ impl Gallery {
                 this.close_lightbox(cx);
             }))
             .cursor_default()
-            .child(self.render_lightbox_content(hash, cx))
-            .child(self.render_info_bar(hash, cx))
+            .child(self.render_lightbox_content(id, cx))
+            .child(self.render_info_bar(id, cx))
     }
 
     /// Render the lightbox footer with position, name, size, and bookmark toggle
-    fn render_info_bar(&self, hash: &ImageHash, cx: &mut Context<Self>) -> impl IntoElement {
-        let entry = self.get_image_entry(hash).expect("image should exist");
-        let name = label_for(&self.library.roots, &entry.src_path);
+    fn render_info_bar(&self, id: &ImageId, cx: &mut Context<Self>) -> impl IntoElement {
+        let entry = self.get_image_entry(id).expect("image should exist");
+        let name = label_for(&self.library.roots, entry.id.path());
         let bytes = format_bytes(entry.bytes);
 
-        let position = self.get_visible_position(hash).map(|p| p + 1).unwrap_or(0);
+        let position = self.get_visible_position(id).map(|p| p + 1).unwrap_or(0);
         let counter = format!(
             "{} / {}",
             util::format_num(position),
@@ -460,8 +460,9 @@ impl Gallery {
                 .child(bytes)
         };
 
-        let is_bookmarked = self.get_bookmark_index(hash).is_some();
-        let hash = *hash;
+        let is_bookmarked = self.get_bookmark_index(&entry.content_hash).is_some();
+        let content_hash = entry.content_hash;
+        let path = entry.id.to_path_buf();
         let actions = || {
             h_flex()
                 .flex_none()
@@ -472,7 +473,7 @@ impl Gallery {
                         .icon(IconAsset::Copy)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
-                            this.copy_path_to_clipboard(&hash, cx);
+                            this.copy_path_to_clipboard(&path, cx);
                         })),
                 )
                 .child(
@@ -485,7 +486,7 @@ impl Gallery {
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
-                            this.toggle_bookmark(&hash, cx);
+                            this.toggle_bookmark(&content_hash, cx);
                         })),
                 )
         };
