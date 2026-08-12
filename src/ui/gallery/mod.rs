@@ -12,9 +12,12 @@ use gpui::{
 use gpui_component::{IndexPath, input::InputState, select::SelectState};
 use library::Library;
 use lightbox::Lightbox;
-use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    path::PathBuf,
+};
 
 pub mod constant;
 pub mod handler;
@@ -645,6 +648,7 @@ impl Gallery {
         }
     }
 
+    /// Reveal the given hash within the current view
     fn scroll_to_hash(&mut self, hash: &ImageHash) {
         // TODO: only "scroll" if it's not already in view
 
@@ -768,9 +772,14 @@ impl Gallery {
         cx.notify();
 
         let bookmarks: Vec<u64> = self.library.bookmarks.iter().map(|hash| hash.0).collect();
-        if let Err(e) = Store::save_bookmarks(&bookmarks) {
-            tracing::warn!(error = %e, "failed to save bookmarks to store");
+        if let Err(err) = Store::save_bookmarks(&bookmarks) {
+            tracing::warn!(?err, "failed to save bookmarks to store");
         }
+    }
+
+    /// Copy the path of the given image to the clipboard
+    fn trash_files(&mut self, paths: &[PathBuf]) {
+        crate::core::path::trash_files(paths);
     }
 
     /// Copy the path of the given image to the clipboard

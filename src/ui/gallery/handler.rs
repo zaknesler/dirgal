@@ -257,6 +257,7 @@ impl Gallery {
         self.zoom_lightbox_fill(cx);
     }
 
+    /// Copy the full path to the clipboard
     pub fn on_copy_path_to_clipboard(
         &mut self,
         action: &actions::CopyPathToClipboard,
@@ -271,8 +272,25 @@ impl Gallery {
                     self.copy_selected_paths_to_clipboard(cx);
                 }
             }
-            actions::CopyPathToClipboard::Thumb(hash) => {
+            actions::CopyPathToClipboard::Hash(hash) => {
                 self.copy_path_to_clipboard(hash, cx);
+            }
+        }
+    }
+
+    /// Trash the file(s) at the given path(s)
+    pub fn on_trash_file(
+        &mut self,
+        action: &actions::TrashFile,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        match action {
+            actions::TrashFile::Current => {
+                unimplemented!()
+            }
+            actions::TrashFile::Path(path) => {
+                self.trash_files(&[path.clone()]);
             }
         }
     }
@@ -293,7 +311,7 @@ impl Gallery {
                     self.toggle_bookmark(&hash, cx);
                 }
             }
-            actions::Bookmark::Thumb(hash) => {
+            actions::Bookmark::Hash(hash) => {
                 self.toggle_bookmark(hash, cx);
             }
         }

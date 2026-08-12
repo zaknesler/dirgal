@@ -36,6 +36,7 @@ thiserror = "2.0.18"
 toml = "1.1.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+trash = "5.2.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gpui = { git = "https://github.com/zed-industries/zed", features = ["wayland"] }

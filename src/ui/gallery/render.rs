@@ -233,6 +233,24 @@ impl Gallery {
         src_path: &Path,
     ) -> gpui_component::menu::PopupMenu {
         menu.check_side(gpui_component::Side::Right)
+            .menu_with_icon_and_disabled(
+                "Copy",
+                IconAsset::ClipboardCopy,
+                Box::new(actions::CopyImage::Path(src_path.to_path_buf())),
+                true,
+            )
+            .menu_with_icon(
+                "Trash",
+                IconAsset::Recycle,
+                Box::new(actions::TrashFile::Path(src_path.to_path_buf())),
+            )
+            .menu_with_icon_and_disabled(
+                "Delete",
+                IconAsset::Trash,
+                Box::new(actions::DeleteFile::Path(src_path.to_path_buf())),
+                true,
+            )
+            .separator()
             .menu_with_icon(
                 if is_bookmarked {
                     "Unbookmark"
@@ -244,12 +262,12 @@ impl Gallery {
                 } else {
                     IconAsset::Bookmark
                 },
-                Box::new(actions::Bookmark::Thumb(hash)),
+                Box::new(actions::Bookmark::Hash(hash)),
             )
             .menu_with_icon(
                 "Copy full path",
-                IconAsset::Copy,
-                Box::new(actions::CopyPathToClipboard::Thumb(hash)),
+                IconAsset::NotepadText,
+                Box::new(actions::CopyPathToClipboard::Hash(hash)),
             )
             .separator()
             .when(page != Page::Gallery, |menu| {
@@ -659,6 +677,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_zoom_fill))
             .on_action(cx.listener(Self::on_toggle_bookmark))
             .on_action(cx.listener(Self::on_copy_path_to_clipboard))
+            .on_action(cx.listener(Self::on_trash_file))
             .on_action(cx.listener(Self::on_open_in_finder))
             .on_action(cx.listener(Self::on_reveal_in_gallery))
             .on_action(cx.listener(Self::on_focus_search))

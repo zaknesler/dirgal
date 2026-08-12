@@ -51,3 +51,8 @@ Some of these are completely out-of-scope and unrealistic, but would be nice to 
 - Videos?
 - Similar image detection?
 - Batch renaming?
+
+### Todo
+
+- Error/warning notifications (toasts or something)
+  - Make utils return results, and handle all the error popups/tracing logs in the gallery

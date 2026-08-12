@@ -16,6 +16,7 @@ pub enum IconAsset {
     ChevronsUpDown,
     ChevronUp,
     CircleX,
+    ClipboardCopy,
     Close,
     Copy,
     Ellipsis,
@@ -40,7 +41,9 @@ pub enum IconAsset {
     Menu,
     Minimize,
     Minus,
+    NotepadText,
     Plus,
+    Recycle,
     Refresh,
     Search,
     Settings,
@@ -52,6 +55,7 @@ pub enum IconAsset {
     StarOff,
     ThumbsDown,
     ThumbsUp,
+    Trash,
     TriangleAlert,
 }
 

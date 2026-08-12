@@ -29,6 +29,24 @@ actions!([
 ]);
 
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
+pub enum CopyImage {
+    Current,
+    Path(PathBuf),
+}
+
+#[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
+pub enum TrashFile {
+    Current,
+    Path(PathBuf),
+}
+
+#[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
+pub enum DeleteFile {
+    Current,
+    Path(PathBuf),
+}
+
+#[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
 pub enum OpenInFinder {
     Current,
     Path(PathBuf),
@@ -37,13 +55,13 @@ pub enum OpenInFinder {
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
 pub enum Bookmark {
     Current,
-    Thumb(super::model::ImageHash),
+    Hash(super::model::ImageHash),
 }
 
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
 pub enum CopyPathToClipboard {
     Current,
-    Thumb(super::model::ImageHash),
+    Hash(super::model::ImageHash),
 }
 
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]

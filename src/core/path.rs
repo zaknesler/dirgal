@@ -101,3 +101,10 @@ pub fn extract_date_from_path(path: &Path) -> Option<(u32, u32, u32)> {
         valid.then_some((year, month, day))
     })
 }
+
+/// Move the given paths to the trash
+pub fn trash_files(paths: &[PathBuf]) {
+    if let Err(err) = trash::delete_all(paths) {
+        tracing::warn!(?err, ?paths, "failed to trash files");
+    }
+}
