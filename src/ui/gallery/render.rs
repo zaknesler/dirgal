@@ -15,7 +15,7 @@ use gpui::{
     list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Icon, InteractiveElementExt, Sizable as _,
+    ActiveTheme, Icon, InteractiveElementExt, Root, Sizable as _,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _, Toggle, ToggleGroup, ToggleVariants},
     h_flex,
@@ -244,11 +244,10 @@ impl Gallery {
                 IconAsset::Recycle,
                 Box::new(actions::TrashFile::Path(src_path.to_path_buf())),
             )
-            .menu_with_icon_and_disabled(
+            .menu_with_icon(
                 "Delete",
                 IconAsset::Trash,
                 Box::new(actions::DeleteFile::Path(src_path.to_path_buf())),
-                true,
             )
             .separator()
             .menu_with_icon(
@@ -658,6 +657,9 @@ impl Render for Gallery {
         // Queue thumbnails for the visible rows; state set here is picked up when rows render below
         self.enqueue_visible(window, cx);
 
+        let notif_layer = Root::render_notification_layer(window, cx);
+        let dialog_layer = Root::render_dialog_layer(window, cx);
+
         v_flex()
             .key_context(super::CONTEXT_GALLERY)
             .track_focus(&self.focus_handle)
@@ -677,7 +679,9 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_zoom_fill))
             .on_action(cx.listener(Self::on_toggle_bookmark))
             .on_action(cx.listener(Self::on_copy_path_to_clipboard))
+            .on_action(cx.listener(Self::on_copy_image))
             .on_action(cx.listener(Self::on_trash_file))
+            .on_action(cx.listener(Self::on_delete_file))
             .on_action(cx.listener(Self::on_open_in_finder))
             .on_action(cx.listener(Self::on_reveal_in_gallery))
             .on_action(cx.listener(Self::on_focus_search))
@@ -706,5 +710,7 @@ impl Render for Gallery {
                 el.child(self.render_lightbox(&hash, cx))
             })
             .child(self.render_floating_actions(cx))
+            .children(notif_layer)
+            .children(dialog_layer)
     }
 }

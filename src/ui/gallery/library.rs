@@ -68,4 +68,9 @@ impl Library {
 
         self.bookmarks = crate::core::image::resolve_bookmarks(bookmarks, &self.images);
     }
+
+    /// Whether any loaded image has the given content hash
+    pub fn contains(&self, hash: &ImageHash) -> bool {
+        self.image_index.contains_key(hash) || self.duplicate_index.contains_key(hash)
+    }
 }

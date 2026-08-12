@@ -7,6 +7,7 @@ use crate::{
     ui::gallery::Gallery,
 };
 use gpui::{ClickEvent, Context, Entity, ListOffset, Window, px};
+use gpui_component::WindowExt;
 use gpui_component::{
     input::{InputEvent, InputState},
     select::{SelectEvent, SelectState},
@@ -278,21 +279,60 @@ impl Gallery {
         }
     }
 
+    /// Copy the file(s) at the given path(s)
+    pub fn on_copy_image(&mut self, _: &actions::CopyImage, _: &mut Window, _: &mut Context<Self>) {
+        unimplemented!()
+    }
+
     /// Trash the file(s) at the given path(s)
     pub fn on_trash_file(
         &mut self,
         action: &actions::TrashFile,
         _: &mut Window,
-        _: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
-        match action {
-            actions::TrashFile::Current => {
-                unimplemented!()
-            }
-            actions::TrashFile::Path(path) => {
-                self.trash_files(&[path.clone()]);
-            }
+        let paths = match action {
+            actions::TrashFile::Current => self.current_image_paths(),
+            actions::TrashFile::Path(path) => vec![path.clone()],
+        };
+
+        if !paths.is_empty() {
+            self.trash_files(&paths, cx);
         }
+    }
+
+    /// Permanently delete the file(s) at the given path(s)
+    pub fn on_delete_file(
+        &mut self,
+        action: &actions::DeleteFile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let paths = match action {
+            actions::DeleteFile::Current => self.current_image_paths(),
+            actions::DeleteFile::Path(path) => vec![path.clone()],
+        };
+        if paths.is_empty() {
+            return;
+        }
+
+        let gallery = cx.entity().downgrade();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let gallery = gallery.clone();
+            let paths = paths.clone();
+            alert
+                .title("Permanently delete files?")
+                .description(
+                    "Are you sure you want to permanently delete? This action cannot be undone.",
+                )
+                .show_cancel(true)
+                .on_ok(move |_, _, cx| {
+                    gallery
+                        .update(cx, |gallery, cx| gallery.delete_files(&paths, cx))
+                        .ok();
+                    true
+                })
+        });
     }
 
     pub fn on_toggle_bookmark(

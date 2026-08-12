@@ -2,7 +2,10 @@ use crate::{
     core::{image::ImageEntry, pipeline},
     error::AppResult,
 };
-use std::path::PathBuf;
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Clone)]
 pub struct ImageScanner {
@@ -35,6 +38,23 @@ impl ImageScanner {
     /// Generate thumbnails for any images that don't have one yet
     pub fn generate_thumbnails(&self) -> AppResult<()> {
         pipeline::generate_thumbnails(&self.images)
+    }
+
+    /// Remove images at the given paths and return their content hashes
+    pub fn remove_paths(&mut self, paths: &[PathBuf]) -> HashSet<u64> {
+        let paths: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        let mut removed_hashes = HashSet::new();
+
+        self.images.retain(|image| {
+            if paths.contains(image.src_path.as_ref()) {
+                removed_hashes.insert(image.hash);
+                false
+            } else {
+                true
+            }
+        });
+
+        removed_hashes
     }
 
     /// Collect files and conver to image entries

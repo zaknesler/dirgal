@@ -476,11 +476,59 @@ impl Gallery {
         cx.notify();
     }
 
-    /// Clear the library, reload from the scanner in current state, and refresh the UI
-    fn reload_from_state(&mut self, cx: &mut Context<Self>) {
+    /// Rebuild the library from the current scanner state
+    fn rebuild_library_from_state(&mut self, cx: &mut Context<Self>) {
         let snapshot = self.state.read(cx).clone();
         self.library = Library::from_state(snapshot, self.settings.sort());
+    }
+
+    /// Clear the library, reload from the scanner in current state, and refresh the UI
+    fn reload_from_state(&mut self, cx: &mut Context<Self>) {
+        self.rebuild_library_from_state(cx);
         self.reflow(cx);
+    }
+
+    /// Remove source paths from scanner state, then rebuild state/index
+    fn remove_paths_from_library(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        let removed_hashes = self.remove_paths_from_scanner(paths, cx);
+        self.rebuild_library_from_state(cx);
+        self.prune_removed_images(&removed_hashes);
+        self.reflow(cx);
+    }
+
+    /// Remove source paths from scanner state and return their content hashes
+    fn remove_paths_from_scanner(
+        &mut self,
+        paths: &[PathBuf],
+        cx: &mut Context<Self>,
+    ) -> HashSet<ImageHash> {
+        self.state
+            .update(cx, |state, _| state.scanner.remove_paths(paths))
+            .into_iter()
+            .map(ImageHash)
+            .collect()
+    }
+
+    /// Clear transient UI state associated with removed or no longer loaded images
+    fn prune_removed_images(&mut self, removed_hashes: &HashSet<ImageHash>) {
+        let library = &self.library;
+        self.selected_hashes
+            .retain(|hash| !removed_hashes.contains(hash) && library.contains(hash));
+        if self
+            .active_hash
+            .is_some_and(|hash| removed_hashes.contains(&hash) || !library.contains(&hash))
+        {
+            self.active_hash = None;
+        }
+        if self
+            .lightbox_hash()
+            .is_some_and(|hash| removed_hashes.contains(&hash) || !library.contains(&hash))
+        {
+            self.lightbox = None;
+        }
+
+        self.queue.retain(|hash| library.contains(hash));
+        self.thumbs.retain(|hash, _| library.contains(hash));
     }
 
     /// Refresh the library in the background
@@ -777,9 +825,50 @@ impl Gallery {
         }
     }
 
-    /// Copy the path of the given image to the clipboard
-    fn trash_files(&mut self, paths: &[PathBuf]) {
-        crate::core::path::trash_files(paths);
+    /// Move files to the trash and remove them from the gallery
+    fn trash_files(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        match crate::core::path::trash_files(paths) {
+            Ok(()) => self.remove_paths_from_library(paths, cx),
+            Err(err) => tracing::warn!(?err, ?paths, "failed to trash files"),
+        }
+    }
+
+    /// Permanently delete files and remove successfully deleted paths from the gallery
+    fn delete_files(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        let mut deleted = Vec::new();
+
+        // Delete each file individually so we can track which ones succeeded
+        for path in paths {
+            match std::fs::remove_file(path) {
+                Ok(()) => deleted.push(path.clone()),
+                Err(err) => tracing::warn!(?err, ?path, "failed to delete file"),
+            }
+        }
+
+        if !deleted.is_empty() {
+            self.remove_paths_from_library(&deleted, cx);
+        }
+    }
+
+    /// Resolve the open image or current selection to source paths
+    /// TODO: get rid of this and make all images unique by path not hash
+    fn current_image_paths(&self) -> Vec<PathBuf> {
+        // If the lightbox is open just use the open image
+        if let Some(hash) = self.lightbox_hash() {
+            return self
+                .get_image_entry(&hash)
+                .map(|image| vec![image.src_path.to_path_buf()])
+                .unwrap_or_default();
+        }
+
+        // Otherwise use all selected hashes in the gallery
+        self.selected_hashes
+            .iter()
+            .filter_map(|hash| {
+                self.get_image_entry(hash)
+                    .map(|image| image.src_path.to_path_buf())
+            })
+            .collect()
     }
 
     /// Copy the path of the given image to the clipboard
