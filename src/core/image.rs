@@ -1,6 +1,6 @@
 use crate::core::path::compare_paths;
 use crate::error::AppResult;
-use crate::ui::model::{ImageHash, Sort, SortKey};
+use crate::ui::model::{Sort, SortKey};
 use gpui::Img;
 use humansize::{BINARY, FormatSizeOptions, format_size};
 use ignore::WalkBuilder;
@@ -22,15 +22,46 @@ pub const SMALL_FILE_BYTES: u64 = 32 * 1024;
 /// Number of bytes read from the head of a file to get the EXIF data (64 KB)
 const EXIF_READ_BYTES: u64 = 64 * 1024;
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct ImageId(Arc<Path>);
+
+impl ImageId {
+    pub fn new(path: PathBuf) -> Self {
+        Self(Arc::from(path))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn clone_path(&self) -> Arc<Path> {
+        self.0.clone()
+    }
+
+    pub fn to_path_buf(&self) -> PathBuf {
+        self.0.to_path_buf()
+    }
+}
+
+impl AsRef<Path> for ImageId {
+    fn as_ref(&self) -> &Path {
+        self.path()
+    }
+}
+
+/// Hash identifying image content, shared by duplicate files
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
+pub struct ContentHash(pub u64);
+
 #[derive(Debug, Clone)]
 pub struct ImageEntry {
-    pub hash: u64,
+    pub id: ImageId,
+    pub content_hash: ContentHash,
     pub bytes: u64,
     #[allow(unused)]
     pub modified: Option<SystemTime>,
     #[allow(unused)]
     pub created: Option<SystemTime>,
-    pub src_path: Arc<Path>,
     pub thumb_path: Arc<Path>,
     pub thumb_exists: bool,
     pub dimensions: Option<(u32, u32)>,
@@ -47,18 +78,18 @@ impl ImageEntry {
     pub fn new(
         file: FoundFile,
         thumb_dir: &Path,
-        hash: u64,
+        content_hash: ContentHash,
         dimensions: Option<(u32, u32)>,
     ) -> Self {
-        let thumb = thumb_dir.join(format!("{:016x}.png", hash));
+        let thumb = thumb_dir.join(format!("{:016x}.png", content_hash.0));
         let thumb_exists = thumb.exists();
 
         Self {
-            hash,
+            id: ImageId::new(file.path),
+            content_hash,
             bytes: file.bytes,
             modified: file.modified,
             created: file.created,
-            src_path: Arc::from(file.path),
             thumb_path: Arc::from(thumb),
             thumb_exists,
             dimensions,
@@ -67,7 +98,7 @@ impl ImageEntry {
 
     /// Generate and save the thumbnail in the thumbnail directory
     pub fn generate_thumbnail(&self) -> AppResult<()> {
-        let src = &self.src_path;
+        let src = self.id.path();
         let dst = &self.thumb_path;
 
         if dst.exists() {
@@ -184,7 +215,7 @@ pub fn deduplicate_and_sort(
     // Reverse the list to retain the last image, so that a duplicate image in
     // a nested directory is kept rather than the one in the parent directory.
     for image in images.iter().rev() {
-        if seen.insert(image.hash) {
+        if seen.insert(image.content_hash) {
             unique.push(image.to_owned());
         } else {
             duplicates.push(image.to_owned());
@@ -197,8 +228,8 @@ pub fn deduplicate_and_sort(
 
 /// Compare by parent directory alone so same directory images stay contiguous
 pub fn compare_parents(a: &ImageEntry, b: &ImageEntry) -> Ordering {
-    let parent_a = a.src_path.parent().unwrap_or(Path::new(""));
-    let parent_b = b.src_path.parent().unwrap_or(Path::new(""));
+    let parent_a = a.id.path().parent().unwrap_or(Path::new(""));
+    let parent_b = b.id.path().parent().unwrap_or(Path::new(""));
     compare_paths(parent_a, parent_b)
 }
 
@@ -209,19 +240,19 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
     }
 
     let ord = match sort.key {
-        SortKey::Name => compare_paths(&a.src_path, &b.src_path),
+        SortKey::Name => compare_paths(a.id.path(), b.id.path()),
         SortKey::Modified => a
             .modified
             .cmp(&b.modified)
-            .then_with(|| compare_paths(&a.src_path, &b.src_path)),
+            .then_with(|| compare_paths(a.id.path(), b.id.path())),
         SortKey::Created => a
             .created
             .cmp(&b.created)
-            .then_with(|| compare_paths(&a.src_path, &b.src_path)),
+            .then_with(|| compare_paths(a.id.path(), b.id.path())),
         SortKey::Size => a
             .bytes
             .cmp(&b.bytes)
-            .then_with(|| compare_paths(&a.src_path, &b.src_path)),
+            .then_with(|| compare_paths(a.id.path(), b.id.path())),
         SortKey::DateInPath => unreachable!("handled above"),
     };
 
@@ -231,28 +262,28 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
 /// Compare by embedded path date, keeping dateless images at the end regardless of direction
 fn compare_date_in_path(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Ordering {
     match (
-        crate::core::path::extract_date_from_path(&a.src_path),
-        crate::core::path::extract_date_from_path(&b.src_path),
+        crate::core::path::extract_date_from_path(a.id.path()),
+        crate::core::path::extract_date_from_path(b.id.path()),
     ) {
-        (None, None) => compare_paths(&a.src_path, &b.src_path),
+        (None, None) => compare_paths(a.id.path(), b.id.path()),
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,
         (Some(da), Some(db)) => {
             let ord = da
                 .cmp(&db)
-                .then_with(|| compare_paths(&a.src_path, &b.src_path));
+                .then_with(|| compare_paths(a.id.path(), b.id.path()));
             if ascending { ord } else { ord.reverse() }
         }
     }
 }
 
 /// Resolve configured bookmark hashes against loaded images, dropping unknowns
-pub fn resolve_bookmarks(hashes: &[u64], images: &[ImageEntry]) -> Vec<ImageHash> {
+pub fn resolve_bookmarks(hashes: &[u64], images: &[ImageEntry]) -> Vec<ContentHash> {
     let known = hashes.iter().copied().collect::<HashSet<u64>>();
 
     images
         .iter()
-        .filter(|e| known.contains(&e.hash))
-        .map(|e| ImageHash(e.hash))
+        .filter(|e| known.contains(&e.content_hash.0))
+        .map(|e| e.content_hash)
         .collect()
 }

@@ -1,7 +1,7 @@
 use crate::{
     core::{
         hash::{hash_content, hash_path},
-        image::{self, FoundFile, ImageEntry, SMALL_FILE_BYTES},
+        image::{self, ContentHash, FoundFile, ImageEntry, SMALL_FILE_BYTES},
         store::{HashCacheEntry, Store},
     },
     error::AppResult,
@@ -107,7 +107,7 @@ pub fn build_image_entries(
         .progress_with(bar.clone())
         .map(|f| {
             let (hash, dimensions) = resolve_meta(&f, &store);
-            ImageEntry::new(f, thumb_dir, hash, dimensions)
+            ImageEntry::new(f, thumb_dir, ContentHash(hash), dimensions)
         })
         .collect::<Vec<ImageEntry>>();
 
@@ -122,11 +122,11 @@ pub fn build_image_entries(
                 .ok()?
                 .as_secs();
             Some((
-                i.src_path.to_path_buf(),
+                i.id.to_path_buf(),
                 HashCacheEntry {
                     size: i.bytes,
                     mtime,
-                    hash: i.hash,
+                    hash: i.content_hash.0,
                     dimensions: i.dimensions,
                 },
             ))
@@ -189,7 +189,7 @@ pub fn generate_thumbnails(images: &[ImageEntry]) -> AppResult<()> {
         .par_iter()
         .progress_with(bar.clone())
         .for_each(|image| {
-            if let Some(name) = image.src_path.file_name() {
+            if let Some(name) = image.id.path().file_name() {
                 bar.set_message(name.to_string_lossy().into_owned());
             }
 
@@ -197,7 +197,7 @@ pub fn generate_thumbnails(images: &[ImageEntry]) -> AppResult<()> {
                 errors
                     .lock()
                     .unwrap()
-                    .push((image.src_path.display().to_string(), err.to_string()))
+                    .push((image.id.path().display().to_string(), err.to_string()))
             }
         });
 

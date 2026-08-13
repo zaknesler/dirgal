@@ -1,3 +1,4 @@
+use crate::error::AppResult;
 use gpui::SharedString;
 use std::path::{Path, PathBuf};
 
@@ -100,4 +101,10 @@ pub fn extract_date_from_path(path: &Path) -> Option<(u32, u32, u32)> {
 
         valid.then_some((year, month, day))
     })
+}
+
+/// Move the given path to the trash
+pub fn trash_file(path: &Path) -> AppResult<()> {
+    trash::delete(path)?;
+    Ok(())
 }

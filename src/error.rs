@@ -31,4 +31,7 @@ pub enum AppError {
 
     #[error(transparent)]
     CacheEncodeError(#[from] postcard::Error),
+
+    #[error(transparent)]
+    TrashError(#[from] trash::Error),
 }

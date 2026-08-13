@@ -6,6 +6,8 @@ use crate::ui::{
 use crate::{
     assets::IconAsset,
     core::{
+        hash::hash_path,
+        image::{ContentHash, ImageId},
         path::group_segments,
         util::{self, file_manager_label},
     },
@@ -15,7 +17,7 @@ use gpui::{
     list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Icon, InteractiveElementExt, Sizable as _,
+    ActiveTheme, Icon, InteractiveElementExt, Root, Sizable as _,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _, Toggle, ToggleGroup, ToggleVariants},
     h_flex,
@@ -59,7 +61,7 @@ impl Gallery {
             .find(|g| g.hash == group_hash)
             .expect("group should exist");
         let segments = group_segments(&self.library.roots, &group.path);
-        let count = group.image_hashes.len();
+        let count = group.image_ids.len();
         let is_collapsed = self.collapsed_groups.contains(&group_hash);
 
         h_flex()
@@ -117,7 +119,7 @@ impl Gallery {
         let is_only_row = index == 0;
         let is_last_row = index == self.rows.len() - 1;
 
-        let hashes = self.filtered_images[range].to_vec();
+        let image_ids = self.filtered_images[range].to_vec();
 
         h_flex()
             .w_full()
@@ -129,16 +131,12 @@ impl Gallery {
                 |el| el.pb(px(GRID_OUTER_MARGIN)),
                 |el| el.pb(px(GRID_GAP)),
             )
-            .children(
-                hashes
-                    .into_iter()
-                    .map(|ref hash| self.render_tile(hash, cx)),
-            )
+            .children(image_ids.into_iter().map(|ref id| self.render_tile(id, cx)))
             .into_any_element()
     }
 
-    fn render_thumb(&self, hash: &ImageHash, _: &mut Context<Self>) -> AnyElement {
-        let source = self.peek_thumb_path(hash);
+    fn render_thumb(&self, id: &ImageId, _: &mut Context<Self>) -> AnyElement {
+        let source = self.peek_thumb_path(id);
 
         let object_fit = match self.settings.thumbnail_fit {
             ThumbnailFit::Cover => ObjectFit::Cover,
@@ -156,23 +154,24 @@ impl Gallery {
     }
 
     /// Render a clickable tile with context menu and loading placeholder
-    fn render_tile(&mut self, hash: &ImageHash, cx: &mut Context<Self>) -> AnyElement {
+    fn render_tile(&mut self, id: &ImageId, cx: &mut Context<Self>) -> AnyElement {
         let size = px(self.tile_size);
-        let is_bookmarked = self.library.bookmarks.contains(hash);
-        let is_selected = self.selected_hashes.contains(hash);
+        let entry = self.get_image_entry(id).expect("image should exist");
+        let content_hash = entry.content_hash;
+        let is_bookmarked = self.library.bookmarks.contains(&content_hash);
+        let is_selected = self.selected_images.contains(id);
         let page = self.page;
 
-        let src_path = self
-            .get_image_entry(hash)
-            .map(|e| e.src_path.to_path_buf())
-            .expect("image should exist");
+        let src_path = entry.id.to_path_buf();
         let path_str = src_path.to_string_lossy().to_string();
+        let tile_id = hash_path(id.path()) as usize;
 
-        let hash = *hash;
+        let click_id = id.clone();
+        let open_id = id.clone();
 
         div()
             .key_context(super::CONTEXT_GALLERY)
-            .id(hash.0 as usize)
+            .id(tile_id)
             .flex_none()
             .size(size)
             .overflow_hidden()
@@ -191,21 +190,21 @@ impl Gallery {
             .cursor_pointer()
             .on_click(cx.listener(move |this, event, window, cx| {
                 cx.stop_propagation();
-                Self::on_thumb_click_event(this, &hash, event, window, cx);
+                Self::on_thumb_click_event(this, &click_id, event, window, cx);
             }))
             .on_double_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
-                this.open_lightbox(&hash, cx)
+                this.open_lightbox(&open_id, cx)
             }))
             .context_menu(move |menu, _, _| {
-                Self::image_context_menu(menu, hash, is_bookmarked, page, &src_path)
+                Self::image_context_menu(menu, content_hash, is_bookmarked, page, &src_path)
             })
             .child(
                 div()
                     .absolute()
                     .inset_0()
                     .aspect_square()
-                    .child(self.render_thumb(&hash, cx)),
+                    .child(self.render_thumb(id, cx)),
             )
             .when(DEBUG, |el| {
                 el.child(
@@ -227,43 +226,59 @@ impl Gallery {
     /// Build the right-click menu for an image in the grid or lightbox
     pub(super) fn image_context_menu(
         menu: gpui_component::menu::PopupMenu,
-        hash: ImageHash,
+        content_hash: ContentHash,
         is_bookmarked: bool,
         page: Page,
         src_path: &Path,
     ) -> gpui_component::menu::PopupMenu {
-        menu.check_side(gpui_component::Side::Right)
-            .menu_with_icon(
-                if is_bookmarked {
-                    "Unbookmark"
-                } else {
-                    "Bookmark"
-                },
-                if is_bookmarked {
-                    IconAsset::BookmarkOff
-                } else {
-                    IconAsset::Bookmark
-                },
-                Box::new(actions::Bookmark::Thumb(hash)),
+        menu.menu_with_icon_and_disabled(
+            "Copy",
+            IconAsset::ClipboardCopy,
+            Box::new(actions::CopyImage::Path(src_path.to_path_buf())),
+            true,
+        )
+        .menu_with_icon(
+            "Trash",
+            IconAsset::Trash,
+            Box::new(actions::TrashFile::Path(src_path.to_path_buf())),
+        )
+        .menu_with_icon(
+            "Delete",
+            IconAsset::CircleX,
+            Box::new(actions::DeleteFile::Path(src_path.to_path_buf())),
+        )
+        .separator()
+        .menu_with_icon(
+            if is_bookmarked {
+                "Unbookmark"
+            } else {
+                "Bookmark"
+            },
+            if is_bookmarked {
+                IconAsset::BookmarkOff
+            } else {
+                IconAsset::Bookmark
+            },
+            Box::new(actions::Bookmark::Hash(content_hash)),
+        )
+        .menu_with_icon(
+            "Copy full path",
+            IconAsset::NotepadText,
+            Box::new(actions::CopyPathToClipboard::Path(src_path.to_path_buf())),
+        )
+        .separator()
+        .when(page != Page::Gallery, |menu| {
+            menu.menu_with_icon(
+                "Reveal in gallery",
+                IconAsset::Grid,
+                Box::new(actions::RevealInGallery(content_hash)),
             )
-            .menu_with_icon(
-                "Copy full path",
-                IconAsset::Copy,
-                Box::new(actions::CopyPathToClipboard::Thumb(hash)),
-            )
-            .separator()
-            .when(page != Page::Gallery, |menu| {
-                menu.menu_with_icon(
-                    "Reveal in gallery",
-                    IconAsset::Grid,
-                    Box::new(actions::RevealInGallery(hash)),
-                )
-            })
-            .menu_with_icon(
-                format!("Open in {}", file_manager_label().to_lowercase()),
-                IconAsset::FolderOpen,
-                Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
-            )
+        })
+        .menu_with_icon(
+            format!("Open in {}", file_manager_label().to_lowercase()),
+            IconAsset::FolderOpen,
+            Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
+        )
     }
 
     /// Skeleton with a spinner shown while a thumbnail loads
@@ -472,8 +487,18 @@ impl Gallery {
     }
 
     fn render_floating_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let should_hide = self.selected_hashes.is_empty() || self.lightbox.is_some();
-        let num_selected = self.selected_hashes.len();
+        let should_hide = self.selected_images.is_empty() || self.lightbox.is_some();
+        let num_selected = self.selected_images.len();
+        let selected_hashes = self.selected_content_hashes();
+        let all_bookmarked = !selected_hashes.is_empty()
+            && selected_hashes
+                .iter()
+                .all(|hash| self.library.bookmarks.contains(hash));
+        let selection_label = format!(
+            "{} {} selected",
+            num_selected,
+            if num_selected == 1 { "image" } else { "images" }
+        );
 
         h_flex()
             .when(should_hide, |el| el.hidden())
@@ -504,7 +529,60 @@ impl Gallery {
                     .text_color(cx.theme().foreground)
                     .cursor_default()
                     .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
-                    .child(format!("{} image(s) selected", num_selected)),
+                    .child(selection_label)
+                    .child(
+                        h_flex()
+                            .flex_none()
+                            .gap_1()
+                            .child(
+                                Button::new("bulk-copy-path")
+                                    .ghost()
+                                    .icon(IconAsset::Copy)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.copy_selected_paths_to_clipboard(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("bulk-bookmark")
+                                    .ghost()
+                                    .icon(if all_bookmarked {
+                                        IconAsset::BookmarkOff
+                                    } else {
+                                        IconAsset::Bookmark
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.toggle_selected_bookmarks(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("bulk-trash")
+                                    .ghost()
+                                    .icon(IconAsset::Trash)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        cx.stop_propagation();
+                                        this.on_trash_file(
+                                            &actions::TrashFile::Current,
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            ),
+                        // .child(
+                        //     Button::new("bulk-delete")
+                        //         .ghost()
+                        //         .icon(IconAsset::Trash)
+                        //         .on_click(cx.listener(|this, _, window, cx| {
+                        //             cx.stop_propagation();
+                        //             this.on_delete_file(
+                        //                 &actions::DeleteFile::Current,
+                        //                 window,
+                        //                 cx,
+                        //             );
+                        //         })),
+                        // ),
+                    ),
             )
     }
 
@@ -534,16 +612,16 @@ impl Gallery {
                 uniform_list(
                     "list",
                     total_count,
-                    cx.processor(move |this, range, _, cx| {
+                    cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
                         let mut items = Vec::new();
                         for index in range {
-                            let hash = this.filtered_images[index];
-                            let image = this.get_image_entry(&hash).expect("image should exist");
-                            let thumb = this.render_thumb(&hash, cx);
+                            let id: ImageId = this.filtered_images[index].clone();
+                            let image = this.get_image_entry(&id).expect("image should exist");
+                            let thumb = this.render_thumb(&id, cx);
 
                             items.push(
                                 h_flex()
-                                    .id(image.hash.to_string())
+                                    .id(hash_path(image.id.path()) as usize)
                                     .px(px(GRID_OUTER_MARGIN))
                                     .py_2()
                                     .w_full()
@@ -569,7 +647,7 @@ impl Gallery {
                                             .text_overflow(gpui::TextOverflow::TruncateMiddle(
                                                 SharedString::new_static(TRUNCATE_STR),
                                             ))
-                                            .child(image.src_path.to_string_lossy().to_string()),
+                                            .child(image.id.path().to_string_lossy().to_string()),
                                     ),
                             );
                         }
@@ -640,6 +718,9 @@ impl Render for Gallery {
         // Queue thumbnails for the visible rows; state set here is picked up when rows render below
         self.enqueue_visible(window, cx);
 
+        let notif_layer = Root::render_notification_layer(window, cx);
+        let dialog_layer = Root::render_dialog_layer(window, cx);
+
         v_flex()
             .key_context(super::CONTEXT_GALLERY)
             .track_focus(&self.focus_handle)
@@ -659,6 +740,9 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::on_zoom_fill))
             .on_action(cx.listener(Self::on_toggle_bookmark))
             .on_action(cx.listener(Self::on_copy_path_to_clipboard))
+            .on_action(cx.listener(Self::on_copy_image))
+            .on_action(cx.listener(Self::on_trash_file))
+            .on_action(cx.listener(Self::on_delete_file))
             .on_action(cx.listener(Self::on_open_in_finder))
             .on_action(cx.listener(Self::on_reveal_in_gallery))
             .on_action(cx.listener(Self::on_focus_search))
@@ -683,9 +767,11 @@ impl Render for Gallery {
                     el.child(self.render_grid(cx))
                 }
             })
-            .when_some(self.lightbox_hash(), |el, hash| {
-                el.child(self.render_lightbox(&hash, cx))
+            .when_some(self.lightbox_image_id().cloned(), |el, id| {
+                el.child(self.render_lightbox(&id, cx))
             })
             .child(self.render_floating_actions(cx))
+            .children(notif_layer)
+            .children(dialog_layer)
     }
 }
