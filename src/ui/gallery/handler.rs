@@ -81,6 +81,7 @@ impl Gallery {
         match event {
             InputEvent::Change | InputEvent::PressEnter { .. } => {
                 cx.stop_propagation();
+                self.clear_selection(cx);
                 self.reflow(cx);
             }
             _ => {}
@@ -317,12 +318,16 @@ impl Gallery {
             return;
         }
 
+        let count = paths.len();
         let gallery = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
             let gallery = gallery.clone();
             let paths = paths.clone();
             alert
-                .title("Permanently delete files?")
+                .title(format!(
+                    "Permanently delete {count} {}?",
+                    if count == 1 { "file" } else { "files" }
+                ))
                 .description(
                     "Are you sure you want to permanently delete? This action cannot be undone.",
                 )

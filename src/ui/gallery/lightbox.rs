@@ -358,9 +358,16 @@ impl Gallery {
                 .overflow_hidden()
                 .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
                     // Clicks on the backdrop (not the image) should bubble up and close the lightbox
-                    if this.is_position_within_image(event.position()) {
-                        cx.stop_propagation();
+                    if !this.is_position_within_image(event.position()) {
+                        return;
                     }
+
+                    // TODO: Open context menu on when image is right clicked (not the entire overlay)
+                    // if event.is_right_click() {
+                    //     return;
+                    // }
+
+                    cx.stop_propagation();
                 }))
                 .on_scroll_wheel(cx.listener(Self::on_image_scroll_wheel))
                 .on_pinch(cx.listener(Self::on_image_pinch))

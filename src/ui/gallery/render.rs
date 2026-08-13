@@ -231,55 +231,54 @@ impl Gallery {
         page: Page,
         src_path: &Path,
     ) -> gpui_component::menu::PopupMenu {
-        menu.check_side(gpui_component::Side::Right)
-            .menu_with_icon_and_disabled(
-                "Copy",
-                IconAsset::ClipboardCopy,
-                Box::new(actions::CopyImage::Path(src_path.to_path_buf())),
-                true,
+        menu.menu_with_icon_and_disabled(
+            "Copy",
+            IconAsset::ClipboardCopy,
+            Box::new(actions::CopyImage::Path(src_path.to_path_buf())),
+            true,
+        )
+        .menu_with_icon(
+            "Trash",
+            IconAsset::Trash,
+            Box::new(actions::TrashFile::Path(src_path.to_path_buf())),
+        )
+        .menu_with_icon(
+            "Delete",
+            IconAsset::CircleX,
+            Box::new(actions::DeleteFile::Path(src_path.to_path_buf())),
+        )
+        .separator()
+        .menu_with_icon(
+            if is_bookmarked {
+                "Unbookmark"
+            } else {
+                "Bookmark"
+            },
+            if is_bookmarked {
+                IconAsset::BookmarkOff
+            } else {
+                IconAsset::Bookmark
+            },
+            Box::new(actions::Bookmark::Hash(content_hash)),
+        )
+        .menu_with_icon(
+            "Copy full path",
+            IconAsset::NotepadText,
+            Box::new(actions::CopyPathToClipboard::Path(src_path.to_path_buf())),
+        )
+        .separator()
+        .when(page != Page::Gallery, |menu| {
+            menu.menu_with_icon(
+                "Reveal in gallery",
+                IconAsset::Grid,
+                Box::new(actions::RevealInGallery(content_hash)),
             )
-            .menu_with_icon(
-                "Trash",
-                IconAsset::Recycle,
-                Box::new(actions::TrashFile::Path(src_path.to_path_buf())),
-            )
-            .menu_with_icon(
-                "Delete",
-                IconAsset::Trash,
-                Box::new(actions::DeleteFile::Path(src_path.to_path_buf())),
-            )
-            .separator()
-            .menu_with_icon(
-                if is_bookmarked {
-                    "Unbookmark"
-                } else {
-                    "Bookmark"
-                },
-                if is_bookmarked {
-                    IconAsset::BookmarkOff
-                } else {
-                    IconAsset::Bookmark
-                },
-                Box::new(actions::Bookmark::Hash(content_hash)),
-            )
-            .menu_with_icon(
-                "Copy full path",
-                IconAsset::NotepadText,
-                Box::new(actions::CopyPathToClipboard::Path(src_path.to_path_buf())),
-            )
-            .separator()
-            .when(page != Page::Gallery, |menu| {
-                menu.menu_with_icon(
-                    "Reveal in gallery",
-                    IconAsset::Grid,
-                    Box::new(actions::RevealInGallery(content_hash)),
-                )
-            })
-            .menu_with_icon(
-                format!("Open in {}", file_manager_label().to_lowercase()),
-                IconAsset::FolderOpen,
-                Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
-            )
+        })
+        .menu_with_icon(
+            format!("Open in {}", file_manager_label().to_lowercase()),
+            IconAsset::FolderOpen,
+            Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
+        )
     }
 
     /// Skeleton with a spinner shown while a thumbnail loads
@@ -490,6 +489,16 @@ impl Gallery {
     fn render_floating_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let should_hide = self.selected_images.is_empty() || self.lightbox.is_some();
         let num_selected = self.selected_images.len();
+        let selected_hashes = self.selected_content_hashes();
+        let all_bookmarked = !selected_hashes.is_empty()
+            && selected_hashes
+                .iter()
+                .all(|hash| self.library.bookmarks.contains(hash));
+        let selection_label = format!(
+            "{} {} selected",
+            num_selected,
+            if num_selected == 1 { "image" } else { "images" }
+        );
 
         h_flex()
             .when(should_hide, |el| el.hidden())
@@ -520,7 +529,60 @@ impl Gallery {
                     .text_color(cx.theme().foreground)
                     .cursor_default()
                     .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
-                    .child(format!("{} image(s) selected", num_selected)),
+                    .child(selection_label)
+                    .child(
+                        h_flex()
+                            .flex_none()
+                            .gap_1()
+                            .child(
+                                Button::new("bulk-copy-path")
+                                    .ghost()
+                                    .icon(IconAsset::Copy)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.copy_selected_paths_to_clipboard(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("bulk-bookmark")
+                                    .ghost()
+                                    .icon(if all_bookmarked {
+                                        IconAsset::BookmarkOff
+                                    } else {
+                                        IconAsset::Bookmark
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.toggle_selected_bookmarks(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("bulk-trash")
+                                    .ghost()
+                                    .icon(IconAsset::Trash)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        cx.stop_propagation();
+                                        this.on_trash_file(
+                                            &actions::TrashFile::Current,
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            ),
+                        // .child(
+                        //     Button::new("bulk-delete")
+                        //         .ghost()
+                        //         .icon(IconAsset::Trash)
+                        //         .on_click(cx.listener(|this, _, window, cx| {
+                        //             cx.stop_propagation();
+                        //             this.on_delete_file(
+                        //                 &actions::DeleteFile::Current,
+                        //                 window,
+                        //                 cx,
+                        //             );
+                        //         })),
+                        // ),
+                    ),
             )
     }
 

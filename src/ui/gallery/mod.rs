@@ -143,7 +143,8 @@ impl Gallery {
     /// Set the current page
     fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
-        self.selected_images = Vec::new();
+        self.selected_images.clear();
+        self.active_image = None;
         self.close_lightbox(cx);
         self.reflow(cx);
     }
@@ -660,9 +661,18 @@ impl Gallery {
         cx.notify();
     }
 
+    /// Clear the current grid selection
+    fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        self.selected_images.clear();
+        self.active_image = None;
+        cx.notify();
+    }
+
     /// Add the given image to the current selection
     fn add_image_to_selection(&mut self, id: &ImageId, cx: &mut Context<Self>) {
-        self.selected_images.push(id.clone());
+        if !self.selected_images.contains(id) {
+            self.selected_images.push(id.clone());
+        }
         self.active_image = Some(id.clone());
         cx.notify();
     }
@@ -686,13 +696,17 @@ impl Gallery {
                     .position(|item| item == active_image)
                     .unwrap_or(0);
 
-                if active_index > index {
-                    self.selected_images
-                        .extend(self.filtered_images[index..=active_index].iter().cloned());
+                let range = if active_index > index {
+                    index..=active_index
                 } else {
-                    self.selected_images
-                        .extend(self.filtered_images[active_index..=index].iter().cloned());
-                }
+                    active_index..=index
+                };
+                let additions: Vec<ImageId> = self.filtered_images[range]
+                    .iter()
+                    .filter(|id| !self.selected_images.contains(id))
+                    .cloned()
+                    .collect();
+                self.selected_images.extend(additions);
 
                 self.active_image = Some(id.clone());
 
@@ -798,6 +812,39 @@ impl Gallery {
         self.reflow(cx);
     }
 
+    /// Add/remove all selected image as bookmarks
+    fn toggle_selected_bookmarks(&mut self, cx: &mut Context<Self>) {
+        let content_hashes = self.selected_content_hashes();
+        if content_hashes.is_empty() {
+            return;
+        }
+
+        let all_bookmarked = content_hashes
+            .iter()
+            .all(|hash| self.library.bookmarks.contains(hash));
+
+        if all_bookmarked {
+            self.library
+                .bookmarks
+                .retain(|hash| !content_hashes.contains(hash));
+        } else {
+            for hash in content_hashes {
+                if !self.library.bookmarks.contains(&hash) {
+                    self.library.bookmarks.push(hash);
+                }
+            }
+        }
+
+        // Only clear the selected bookmarks on the bookmarks page (cause they no longer exist there)
+        if self.page == Page::Bookmarks {
+            self.selected_images.clear();
+            self.active_image = None;
+        }
+
+        self.persist_bookmarks(cx);
+        self.reflow(cx);
+    }
+
     /// Sync bookmarks into the shared scanner state and persist to the store file
     fn persist_bookmarks(&mut self, cx: &mut Context<Self>) {
         let current: HashSet<u64> = self.library.bookmarks.iter().map(|hash| hash.0).collect();
@@ -822,14 +869,12 @@ impl Gallery {
             }
         });
 
-        self.library.bookmarks = crate::core::image::resolve_bookmarks(
-            &self.state.read(cx).scanner.bookmarks,
-            &self.library.images,
-        );
+        let bookmarks = self.state.read(cx).scanner.bookmarks.clone();
+        self.library.bookmarks =
+            crate::core::image::resolve_bookmarks(&bookmarks, &self.library.images);
 
         cx.notify();
 
-        let bookmarks: Vec<u64> = self.library.bookmarks.iter().map(|hash| hash.0).collect();
         if let Err(err) = Store::save_bookmarks(&bookmarks) {
             tracing::warn!(?err, "failed to save bookmarks to store");
         }
@@ -851,6 +896,7 @@ impl Gallery {
         if !trashed.is_empty() {
             self.remove_paths_from_library(&trashed, cx);
         }
+        self.clear_selection(cx);
     }
 
     /// Permanently delete files and remove successfully deleted paths from the gallery
@@ -869,6 +915,7 @@ impl Gallery {
         if !deleted.is_empty() {
             self.remove_paths_from_library(&deleted, cx);
         }
+        self.clear_selection(cx);
     }
 
     /// Resolve the open image or current selection to source paths
@@ -880,6 +927,18 @@ impl Gallery {
         self.selected_images
             .iter()
             .map(ImageId::to_path_buf)
+            .collect()
+    }
+
+    /// Resolve selected files to unique content hashes in selection order
+    fn selected_content_hashes(&self) -> Vec<ContentHash> {
+        let mut seen = HashSet::new();
+
+        self.selected_images
+            .iter()
+            .filter_map(|id| self.get_image_entry(id))
+            .map(|entry| entry.content_hash)
+            .filter(|hash| seen.insert(*hash))
             .collect()
     }
 
