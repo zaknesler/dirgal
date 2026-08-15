@@ -1,4 +1,8 @@
-use crate::ui::{gallery::view::GroupHash, model::*, *};
+use crate::ui::{
+    gallery::view::{Direction, GalleryView, GroupHash, ScrollTarget},
+    model::*,
+    *,
+};
 use crate::{
     core::{
         hash::hash_path,
@@ -7,7 +11,7 @@ use crate::{
     },
     ui::gallery::Gallery,
 };
-use gpui::{ClickEvent, Context, Entity, ListOffset, Window, px};
+use gpui::{ClickEvent, Context, Entity, Window};
 use gpui_component::WindowExt;
 use gpui_component::{
     input::{InputEvent, InputState},
@@ -108,22 +112,20 @@ impl Gallery {
         cx.notify();
     }
 
-    pub fn on_up(&mut self, _: &actions::Up, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn on_up(&mut self, _: &actions::Up, _: &mut Window, cx: &mut Context<Self>) {
         if self.lightbox.is_some() {
             return;
         }
 
-        let (num_columns, _) = self.get_grid_layout(window);
-        self.select_step(-(num_columns as isize), cx);
+        self.select_adjacent_image(Direction::Up, cx);
     }
 
-    pub fn on_down(&mut self, _: &actions::Down, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn on_down(&mut self, _: &actions::Down, _: &mut Window, cx: &mut Context<Self>) {
         if self.lightbox.is_some() {
             return;
         }
 
-        let (num_columns, _) = self.get_grid_layout(window);
-        self.select_step(num_columns as isize, cx);
+        self.select_adjacent_image(Direction::Down, cx);
     }
 
     pub fn on_left(&mut self, _: &actions::Left, _: &mut Window, cx: &mut Context<Self>) {
@@ -132,9 +134,7 @@ impl Gallery {
             return;
         }
 
-        if self.selected_images.len() == 1 {
-            self.select_step(-1, cx);
-        }
+        self.select_adjacent_image(Direction::Left, cx);
     }
 
     pub fn on_right(&mut self, _: &actions::Right, _: &mut Window, cx: &mut Context<Self>) {
@@ -143,9 +143,7 @@ impl Gallery {
             return;
         }
 
-        if self.selected_images.len() == 1 {
-            self.select_step(1, cx);
-        }
+        self.select_adjacent_image(Direction::Right, cx);
     }
 
     pub fn on_open_lightbox(
@@ -166,11 +164,10 @@ impl Gallery {
             return;
         }
 
-        // Otherwise find the first image (if grouped, use the image from the first opened group)
-        let first = if self.settings.view == View::Grouped {
-            self.grouped_view.first_image(&self.filtered_images)
-        } else {
-            self.filtered_images.first().cloned()
+        let first = match self.settings.view {
+            View::Grid => self.grid_view.first_image(&self.filtered_images),
+            View::Grouped => self.grouped_view.first_image(&self.filtered_images),
+            View::List => self.list_view.first_image(&self.filtered_images),
         };
 
         if let Some(id) = first {
@@ -223,7 +220,7 @@ impl Gallery {
             return;
         }
 
-        self.zoom_grid_in(cx);
+        self.zoom_view_in(cx);
     }
 
     pub fn on_zoom_out(&mut self, _: &actions::ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
@@ -233,7 +230,7 @@ impl Gallery {
             return;
         }
 
-        self.zoom_grid_out(cx);
+        self.zoom_view_out(cx);
     }
 
     pub fn on_zoom_reset(
@@ -247,8 +244,7 @@ impl Gallery {
             return;
         }
 
-        self.column_override = None;
-        cx.notify();
+        self.reset_view_zoom(cx);
     }
 
     /// Fill the lightbox area with the open image
@@ -422,7 +418,7 @@ impl Gallery {
         self.select_single_image(&id, cx);
         self.reflow(cx);
 
-        self.scroll_to_image(&id);
+        self.scroll_to_image(&id, cx);
 
         cx.notify();
     }
@@ -437,29 +433,24 @@ impl Gallery {
         self.input_focus_handle.focus(window, cx);
     }
 
-    /// Jump the grid scroll position to the very top
+    /// Jump the active view to the very top
     pub fn on_jump_to_top(
         &mut self,
         _: &actions::JumpToTop,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.grid.scroll_to(ListOffset {
-            item_ix: 0,
-            offset_in_item: px(0.),
-        });
-        cx.notify();
+        self.scroll_view(ScrollTarget::Start, cx);
     }
 
-    /// Jump the grid scroll position to the very bottom
+    /// Jump the active view to the very bottom
     pub fn on_jump_to_bottom(
         &mut self,
         _: &actions::JumpToBottom,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.grid.scroll_to_end();
-        cx.notify();
+        self.scroll_view(ScrollTarget::End, cx);
     }
 
     /// Cycle to the previous page, wrapping around
@@ -491,7 +482,7 @@ impl Gallery {
             return;
         }
 
-        self.grouped_view.toggle_all();
-        self.reflow(cx);
+        self.grouped_view.toggle_groups();
+        cx.notify();
     }
 }

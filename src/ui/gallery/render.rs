@@ -17,8 +17,8 @@ use crate::{
     },
 };
 use gpui::{
-    AnyElement, App, Context, FocusHandle, Focusable, ObjectFit, SharedString, Window, div, img,
-    list, prelude::*, px, rems, uniform_list,
+    AnyElement, App, ClickEvent, Context, FocusHandle, Focusable, ObjectFit, SharedString, Window,
+    div, img, list, prelude::*, px, rems, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Icon, InteractiveElementExt, Root, Sizable as _,
@@ -39,14 +39,14 @@ use std::path::Path;
 
 impl Gallery {
     /// Render a single list row, either a group header or a row of tiles
-    fn render_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(row) = self.rows.get(index).cloned() else {
+    fn render_grouped_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(row) = self.grouped_view.row(index) else {
             return div().into_any_element();
         };
 
         match row {
             Row::Header(group_hash) => self.render_header_row(group_hash, index, cx),
-            Row::Tiles(range) => self.render_tile_row(range, index, cx),
+            Row::Tiles(range) => self.render_grouped_tile_row(range, index, cx),
         }
     }
 
@@ -57,7 +57,7 @@ impl Gallery {
         index: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let is_last_row = index == self.rows.len() - 1;
+        let is_last_row = index == self.grouped_view.row_count() - 1;
 
         let group = self
             .grouped_view
@@ -113,16 +113,17 @@ impl Gallery {
     }
 
     /// Render one row of thumbnail tiles for a slice of the filtered images
-    fn render_tile_row(
+    fn render_grouped_tile_row(
         &mut self,
         range: std::ops::Range<usize>,
         index: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let is_only_row = index == 0;
-        let is_last_row = index == self.rows.len() - 1;
+        let is_last_row = index == self.grouped_view.row_count() - 1;
 
-        let image_ids = self.row_image_ids(range);
+        let image_ids = self.grouped_row_image_ids(range);
+        let tile_size = self.grouped_view.tile_size();
 
         h_flex()
             .w_full()
@@ -134,7 +135,11 @@ impl Gallery {
                 |el| el.pb(px(GRID_OUTER_MARGIN)),
                 |el| el.pb(px(GRID_GAP)),
             )
-            .children(image_ids.into_iter().map(|ref id| self.render_tile(id, cx)))
+            .children(
+                image_ids
+                    .into_iter()
+                    .map(|ref id| self.render_tile(id, tile_size, cx)),
+            )
             .into_any_element()
     }
 
@@ -157,8 +162,8 @@ impl Gallery {
     }
 
     /// Render a clickable tile with context menu and loading placeholder
-    fn render_tile(&mut self, id: &ImageId, cx: &mut Context<Self>) -> AnyElement {
-        let size = px(self.tile_size);
+    fn render_tile(&mut self, id: &ImageId, tile_size: f32, cx: &mut Context<Self>) -> AnyElement {
+        let size = px(tile_size);
         let entry = self.get_image_entry(id).expect("image should exist");
         let content_hash = entry.content_hash;
         let is_bookmarked = self.library.bookmarks.contains(&content_hash);
@@ -464,7 +469,7 @@ impl Gallery {
                                 .icon(IconAsset::Minus)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
-                                    this.zoom_grid_out(cx);
+                                    this.zoom_view_out(cx);
                                 })),
                         )
                         .child(
@@ -473,7 +478,7 @@ impl Gallery {
                                 .icon(IconAsset::Plus)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
-                                    this.zoom_grid_in(cx);
+                                    this.zoom_view_in(cx);
                                 })),
                         ),
                 )
@@ -602,6 +607,8 @@ impl Gallery {
     /// Render a virtualized image list with its scrollbar
     fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let total_count = self.filtered_images.len();
+        let thumbnail_size = self.list_view.thumbnail_size();
+        let scroll_handle = self.list_view.scroll_handle().clone();
 
         div()
             .image_cache(super::cache::simple_lru_cache(
@@ -617,10 +624,16 @@ impl Gallery {
                     total_count,
                     cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
                         let mut items = Vec::new();
-                        for index in range {
-                            let id: ImageId = this.filtered_images[index].clone();
+                        if this.list_view.set_visible_range(range.clone()) {
+                            cx.notify();
+                        }
+                        let image_ids = this.filtered_images[range.clone()].to_vec();
+
+                        for (index, id) in range.zip(image_ids) {
                             let image = this.get_image_entry(&id).expect("image should exist");
                             let thumb = this.render_thumb(&id, cx);
+                            let click_id = id.clone();
+                            let open_id = id.clone();
 
                             items.push(
                                 h_flex()
@@ -635,11 +648,23 @@ impl Gallery {
                                     .overflow_hidden()
                                     .border_color(cx.theme().border)
                                     .cursor_pointer()
+                                    .on_click(cx.listener(
+                                        move |this, event: &ClickEvent, window, cx| {
+                                            cx.stop_propagation();
+                                            Self::on_thumb_click_event(
+                                                this, &click_id, event, window, cx,
+                                            );
+                                        },
+                                    ))
+                                    .on_double_click(cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.open_lightbox(&open_id, cx);
+                                    }))
                                     .child(
                                         div()
                                             .flex_shrink_0()
                                             .overflow_hidden()
-                                            .size(px(80.))
+                                            .size(px(thumbnail_size))
                                             .child(thumb),
                                     )
                                     .child(
@@ -657,6 +682,7 @@ impl Gallery {
                         items
                     }),
                 )
+                .track_scroll(&scroll_handle)
                 .size_full(),
             )
             .child(
@@ -666,12 +692,75 @@ impl Gallery {
                     .left_0()
                     .right_0()
                     .bottom_0()
-                    .child(Scrollbar::vertical(&self.grid)),
+                    .child(Scrollbar::vertical(&scroll_handle)),
             )
     }
 
-    /// Render a virtualized image grid with its scrollbar
+    /// Render the virtualized flat grid
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let image_count = self.filtered_images.len();
+        let row_count = self.grid_view.row_count(image_count);
+        let tile_size = self.grid_view.tile_size();
+        let scroll_handle = self.grid_view.scroll_handle().clone();
+
+        div()
+            .image_cache(super::cache::simple_lru_cache(
+                super::CONTEXT_GRID,
+                GRID_CACHE_ITEMS,
+            ))
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .child(
+                uniform_list(
+                    "grid",
+                    row_count,
+                    cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                        let mut rows = Vec::new();
+                        if this.grid_view.set_visible_rows(range.clone()) {
+                            cx.notify();
+                        }
+
+                        for row in range {
+                            let range = this.grid_view.row_range(row, image_count);
+                            let image_ids = this.filtered_images[range].to_vec();
+
+                            rows.push(
+                                h_flex()
+                                    .w_full()
+                                    .gap(px(GRID_GAP))
+                                    .px(px(GRID_OUTER_MARGIN))
+                                    .pb(px(GRID_GAP))
+                                    .children(
+                                        image_ids
+                                            .iter()
+                                            .map(|id| this.render_tile(id, tile_size, cx)),
+                                    )
+                                    .into_any_element(),
+                            );
+                        }
+
+                        rows
+                    }),
+                )
+                .track_scroll(&scroll_handle)
+                .size_full(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .child(Scrollbar::vertical(&scroll_handle)),
+            )
+    }
+
+    /// Render the virtualized grouped grid
+    fn render_grouped(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let list_state = self.grouped_view.list_state().clone();
+
         div()
             .image_cache(super::cache::simple_lru_cache(
                 super::CONTEXT_GRID,
@@ -682,8 +771,8 @@ impl Gallery {
             .relative()
             .child(
                 list(
-                    self.grid.clone(),
-                    cx.processor(|this, index, _, cx| this.render_row(index, cx)),
+                    list_state.clone(),
+                    cx.processor(|this, index, _, cx| this.render_grouped_row(index, cx)),
                 )
                 .size_full(),
             )
@@ -694,7 +783,7 @@ impl Gallery {
                     .left_0()
                     .right_0()
                     .bottom_0()
-                    .child(Scrollbar::vertical(&self.grid)),
+                    .child(Scrollbar::vertical(&list_state)),
             )
     }
 }
@@ -707,19 +796,34 @@ impl Focusable for Gallery {
 
 impl Render for Gallery {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (columns, tile_size) = self.get_grid_layout(window);
-
-        let cols_changed = columns != self.num_columns;
-
-        // Check if tile size has changed by more than a sub-pixel threshold
-        let tile_size_changed = (tile_size - self.tile_size).abs() > 0.5;
-
-        if (cols_changed || tile_size_changed) && !self.library.images.is_empty() {
-            self.set_layout(columns, tile_size, cx);
+        match self.settings.view {
+            View::Grid => self.grid_view.update_layout(window.viewport_size().width),
+            View::Grouped => self
+                .grouped_view
+                .update_layout(window.viewport_size().width),
+            View::List => {}
         }
 
-        // Queue thumbnails for the visible rows; state set here is picked up when rows render below
-        self.enqueue_visible(window, cx);
+        match self.settings.view {
+            View::Grid => {
+                let range = self
+                    .grid_view
+                    .visible_image_range(self.filtered_images.len());
+                let image_ids = self.filtered_images[range].to_vec();
+                self.enqueue_thumbnails(&image_ids, cx);
+            }
+            View::Grouped => {
+                let visible = self
+                    .grouped_view
+                    .visible_image_indices(window.viewport_size().height.as_f32());
+                self.enqueue_grouped_thumbnails(visible, cx);
+            }
+            View::List => {
+                let range = self.list_view.visible_range(self.filtered_images.len());
+                let image_ids = self.filtered_images[range].to_vec();
+                self.enqueue_thumbnails(&image_ids, cx);
+            }
+        }
 
         let notif_layer = Root::render_notification_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
@@ -764,10 +868,12 @@ impl Render for Gallery {
             .map(|el| {
                 if self.filtered_images.is_empty() {
                     el.child(self.render_empty(cx))
-                } else if self.settings.view == View::List {
-                    el.child(self.render_list(cx))
                 } else {
-                    el.child(self.render_grid(cx))
+                    match self.settings.view {
+                        View::Grid => el.child(self.render_grid(cx)),
+                        View::Grouped => el.child(self.render_grouped(cx)),
+                        View::List => el.child(self.render_list(cx)),
+                    }
                 }
             })
             .when_some(self.lightbox_image_id().cloned(), |el, id| {

@@ -3,11 +3,8 @@ use crate::core::{
     image::{ContentHash, ImageEntry, ImageId, SMALL_FILE_BYTES},
     store::Store,
 };
-use crate::ui::{gallery::constant::*, model::*, *};
-use gpui::{
-    App, ClipboardItem, Context, Entity, FocusHandle, Focusable, ListAlignment, ListOffset,
-    ListState, Window, prelude::*, px,
-};
+use crate::ui::{model::*, *};
+use gpui::{App, ClipboardItem, Context, Entity, FocusHandle, Focusable, Window, prelude::*};
 use gpui_component::{IndexPath, input::InputState, select::SelectState};
 use library::Library;
 use lightbox::Lightbox;
@@ -17,7 +14,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
 };
-use view::{GroupedView, Row};
+use view::{GalleryView, GridView, GroupedView, ListView, ScrollTarget};
 
 pub mod constant;
 pub mod handler;
@@ -42,14 +39,9 @@ pub struct Gallery {
     // Data
     library: Library,
     filtered_images: Vec<ImageId>,
+    grid_view: GridView,
     grouped_view: GroupedView,
-    rows: Vec<Row>,
-
-    // Grid
-    grid: ListState,
-    tile_size: f32,
-    num_columns: usize,
-    column_override: Option<usize>,
+    list_view: ListView,
     active_image: Option<ImageId>,
     selected_images: Vec<ImageId>,
 
@@ -107,9 +99,6 @@ impl Gallery {
         cx.subscribe_in(&sort_select, window, Self::on_sort)
             .detach();
 
-        // Create a grid that is sized to show all of the items upon first load
-        let grid = ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all();
-
         let mut this = Self {
             state,
             page: config.page,
@@ -121,12 +110,9 @@ impl Gallery {
             sort_select,
             library: Library::empty(),
             filtered_images: Vec::new(),
+            grid_view: GridView::new(),
             grouped_view: GroupedView::new(),
-            rows: Vec::new(),
-            grid,
-            tile_size: GRID_TILE_MIN,
-            num_columns: 1,
-            column_override: None,
+            list_view: ListView::new(),
             active_image: None,
             selected_images: Vec::new(),
             thumbs: HashMap::new(),
@@ -280,17 +266,13 @@ impl Gallery {
         self.filtered_images.iter().position(|item| item == id)
     }
 
-    /// Return image IDs for a rendered tile row
-    fn row_image_ids(&self, range: std::ops::Range<usize>) -> Vec<ImageId> {
-        if self.settings.view == View::Grouped {
-            self.grouped_view
-                .image_indices(range)
-                .iter()
-                .map(|index| self.filtered_images[*index].clone())
-                .collect()
-        } else {
-            self.filtered_images[range].to_vec()
-        }
+    /// Return image IDs for a grouped tile row
+    fn grouped_row_image_ids(&self, range: std::ops::Range<usize>) -> Vec<ImageId> {
+        self.grouped_view
+            .image_indices(range)
+            .iter()
+            .map(|index| self.filtered_images[*index].clone())
+            .collect()
     }
 
     /// Look up an image entry by file identity
@@ -333,31 +315,26 @@ impl Gallery {
         true
     }
 
-    /// Queue thumbnails for the rows in (or near) the viewport, dropping pending work that scrolled away
-    fn enqueue_visible(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.rows.is_empty() {
-            return;
+    /// Queue thumbnails for the given images
+    fn enqueue_thumbnails(&mut self, image_ids: &[ImageId], cx: &mut Context<Self>) {
+        let mut changed = false;
+        for id in image_ids {
+            changed |= self.enqueue_thumb(id);
         }
+        if changed {
+            self.process_queue(cx);
+        }
+    }
 
-        let len = self.rows.len();
-        let row_height = self.tile_size + GRID_GAP;
-        let viewport = window.viewport_size().height.as_f32() + 2.0 * GRID_OVERDRAW;
-        let count = (viewport / row_height).ceil() as usize + 1;
-
-        // The scroll top can sit past the last row (e.g. after jumping to the bottom),
-        // so anchor the window to the end in that case rather than covering nothing
-        let anchor = self.grid.logical_scroll_top().item_ix.min(len);
-        let start = anchor.min(len.saturating_sub(count));
-        let end = (start + count).min(len);
-
-        let visible: HashSet<ContentHash> = self.rows[start..end]
+    /// Queue thumbnails near the grouped viewport
+    fn enqueue_grouped_thumbnails(&mut self, visible_indices: Vec<usize>, cx: &mut Context<Self>) {
+        let visible_ids: Vec<ImageId> = visible_indices
+            .into_iter()
+            .map(|index| self.filtered_images[index].clone())
+            .collect();
+        let visible: HashSet<ContentHash> = visible_ids
             .iter()
-            .filter_map(|row| match row {
-                Row::Tiles(range) => Some(self.row_image_ids(range.clone())),
-                Row::Header(_) => None,
-            })
-            .flatten()
-            .filter_map(|id| self.get_image_entry(&id).map(|entry| entry.content_hash))
+            .filter_map(|id| self.get_image_entry(id).map(|entry| entry.content_hash))
             .collect();
 
         // Cancel jobs for rows that have scrolled out of view before they start
@@ -395,21 +372,6 @@ impl Gallery {
                 return Some(image);
             }
         }
-    }
-
-    /// Compute optimal column count and tile size from the viewport width
-    fn get_grid_layout(&self, window: &Window) -> (usize, f32) {
-        let avail = window.viewport_size().width.as_f32() - GRID_OUTER_MARGIN * 2.0;
-
-        // Respect the user's chosen column count over the calculated count
-        let cols = match self.column_override {
-            Some(c) => c,
-            None => (((avail + GRID_GAP) / (GRID_TILE_MIN + GRID_GAP)).floor() as usize).max(1),
-        };
-
-        let tile = ((avail - cols.saturating_sub(1) as f32 * GRID_GAP) / cols as f32).max(30.0);
-
-        (cols, tile)
     }
 
     /// Spawn background thumbnail jobs up to the concurrency limit
@@ -563,45 +525,14 @@ impl Gallery {
         .detach();
     }
 
-    /// Rebuild filtered images, groups, and rows for the current page and query
+    /// Rebuild filtered images and grouped state for the current page and query
     fn reflow(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
         let filtered = self.get_visible_image_ids(&query);
         self.filtered_images = filtered;
         self.grouped_view
             .rebuild(&self.filtered_images, &self.library);
-
-        let old_rows = std::mem::take(&mut self.rows);
-        let cols = self.num_columns.max(1);
-
-        if self.settings.view == View::Grouped {
-            self.rows = self.grouped_view.rows(cols);
-        } else {
-            self.rows
-                .extend(Row::chunk_tiles(0, self.filtered_images.len(), cols));
-        }
-
-        self.splice_changed_rows(&old_rows);
         cx.notify();
-    }
-
-    /// Splice only the changed middle range into the list state to preserve scroll position
-    fn splice_changed_rows(&mut self, old_rows: &[Row]) {
-        let unchanged_head = std::iter::zip(old_rows, &self.rows)
-            .take_while(|(a, b)| a == b)
-            .count();
-
-        let unchanged_tail = std::iter::zip(
-            old_rows[unchanged_head..].iter().rev(),
-            self.rows[unchanged_head..].iter().rev(),
-        )
-        .take_while(|(a, b)| a == b)
-        .count();
-
-        self.grid.splice(
-            unchanged_head..old_rows.len() - unchanged_tail,
-            self.rows.len() - unchanged_head - unchanged_tail,
-        );
     }
 
     /// Cancel all grid thumbnail generation
@@ -613,13 +544,6 @@ impl Gallery {
         }
 
         self.queue.clear();
-    }
-
-    /// Apply a new grid layout and rebuild rows to match
-    fn set_layout(&mut self, columns: usize, tile_size: f32, cx: &mut Context<Self>) {
-        self.num_columns = columns;
-        self.tile_size = tile_size;
-        self.reflow(cx);
     }
 
     /// Mark the given image as selected, deselecting any other items
@@ -687,26 +611,18 @@ impl Gallery {
     }
 
     /// Reveal the given image within the current view
-    fn scroll_to_image(&mut self, id: &ImageId) {
-        // TODO: only "scroll" if it's not already in view
+    fn scroll_to_image(&mut self, id: &ImageId, cx: &mut Context<Self>) {
+        self.scroll_view(ScrollTarget::Image(id.clone()), cx);
+    }
 
-        let position = if self.settings.view == View::Grouped {
-            self.grouped_view.image_position(&self.filtered_images, id)
-        } else {
-            self.get_visible_position(id)
-        };
-
-        if let Some(row_ix) = position.and_then(|pos| {
-            self.rows.iter().position(|row| match row {
-                Row::Tiles(range) => range.contains(&pos),
-                Row::Header(_) => false,
-            })
-        }) {
-            self.grid.scroll_to(ListOffset {
-                item_ix: row_ix,
-                offset_in_item: px(0.),
-            });
+    /// Scroll the active view to a target
+    fn scroll_view(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {
+        match self.settings.view {
+            View::Grid => self.grid_view.scroll_to(&self.filtered_images, target),
+            View::Grouped => self.grouped_view.scroll_to(&self.filtered_images, target),
+            View::List => self.list_view.scroll_to(&self.filtered_images, target),
         }
+        cx.notify();
     }
 
     /// Show the lightbox with the given image and stop generating thumbnails
@@ -743,33 +659,36 @@ impl Gallery {
         self.open_lightbox(&next, cx);
     }
 
-    /// Select the next or previous image in the filtered set
-    fn select_step(&mut self, delta: isize, cx: &mut Context<Self>) {
-        // Only change single selections
-        if self.selected_images.len() != 1 {
-            return;
+    /// Select the next image in the given direction
+    fn select_adjacent_image(&mut self, direction: view::Direction, cx: &mut Context<Self>) {
+        let next = match self.settings.view {
+            View::Grid => self.grid_view.neighbor(
+                &self.filtered_images,
+                self.active_image.as_ref(),
+                direction,
+            ),
+            View::Grouped => self.grouped_view.neighbor(
+                &self.filtered_images,
+                self.active_image.as_ref(),
+                direction,
+            ),
+            View::List => self.list_view.neighbor(
+                &self.filtered_images,
+                self.active_image.as_ref(),
+                direction,
+            ),
+        };
+
+        if let Some(next) = next {
+            self.select_single_image(&next, cx);
+            self.scroll_to_image(&next, cx);
         }
-
-        let selected_image = self
-            .selected_images
-            .first()
-            .expect("image should be selected");
-
-        let pos = self
-            .get_visible_position(selected_image)
-            .expect("image should exist") as isize;
-
-        let next_index = (pos + delta).rem_euclid(self.filtered_images.len() as isize);
-
-        let new_image = self.filtered_images[next_index as usize].clone();
-        self.select_single_image(&new_image, cx);
-        self.scroll_to_image(&new_image);
     }
 
     /// Collapse or expand a directory group
     fn toggle_group(&mut self, group_hash: view::GroupHash, cx: &mut Context<Self>) {
         self.grouped_view.toggle_group(group_hash);
-        self.reflow(cx);
+        cx.notify();
     }
 
     /// Add or remove a bookmark and persist the change
@@ -935,17 +854,33 @@ impl Gallery {
         cx.write_to_clipboard(ClipboardItem::new_string(paths.join("\n")));
     }
 
-    /// Enlarge tiles by removing a column
-    fn zoom_grid_in(&mut self, cx: &mut Context<Self>) {
-        let current = self.column_override.unwrap_or(self.num_columns);
-        self.column_override = Some((current - 1).max(MIN_COLS));
+    /// Enlarge thumbnails in the active view
+    fn zoom_view_in(&mut self, cx: &mut Context<Self>) {
+        match self.settings.view {
+            View::Grid => self.grid_view.zoom_in(),
+            View::Grouped => self.grouped_view.zoom_in(),
+            View::List => self.list_view.zoom_in(),
+        };
         cx.notify();
     }
 
-    /// Shrink tiles by adding a column
-    fn zoom_grid_out(&mut self, cx: &mut Context<Self>) {
-        let current = self.column_override.unwrap_or(self.num_columns);
-        self.column_override = Some((current + 1).min(MAX_COLS));
+    /// Shrink thumbnails in the active view
+    fn zoom_view_out(&mut self, cx: &mut Context<Self>) {
+        match self.settings.view {
+            View::Grid => self.grid_view.zoom_out(),
+            View::Grouped => self.grouped_view.zoom_out(),
+            View::List => self.list_view.zoom_out(),
+        };
+        cx.notify();
+    }
+
+    /// Restore the active view's default thumbnail size
+    fn reset_view_zoom(&mut self, cx: &mut Context<Self>) {
+        match self.settings.view {
+            View::Grid => self.grid_view.zoom_reset(),
+            View::Grouped => self.grouped_view.zoom_reset(),
+            View::List => self.list_view.zoom_reset(),
+        };
         cx.notify();
     }
 
