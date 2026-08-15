@@ -1,4 +1,4 @@
-use crate::ui::{model::*, *};
+use crate::ui::{gallery::view::GroupHash, model::*, *};
 use crate::{
     core::{
         hash::hash_path,
@@ -168,11 +168,7 @@ impl Gallery {
 
         // Otherwise find the first image (if grouped, use the image from the first opened group)
         let first = if self.settings.view == View::Grouped {
-            self.groups
-                .iter()
-                .find(|g| !self.collapsed_groups.contains(&g.hash))
-                .and_then(|g| g.image_ids.first())
-                .cloned()
+            self.grouped_view.first_image(&self.filtered_images)
         } else {
             self.filtered_images.first().cloned()
         };
@@ -417,7 +413,8 @@ impl Gallery {
                 .parent()
                 .unwrap_or(Path::new(""))
                 .to_path_buf();
-            self.collapsed_groups.remove(&GroupHash(hash_path(&parent)));
+            self.grouped_view
+                .expand_group(GroupHash(hash_path(&parent)));
         }
 
         self.page = Page::Gallery;
@@ -494,12 +491,7 @@ impl Gallery {
             return;
         }
 
-        if self.collapsed_groups.len() == self.groups.len() {
-            self.collapsed_groups.clear();
-        } else {
-            self.collapsed_groups = self.groups.iter().map(|g| g.hash).collect();
-        }
-
+        self.grouped_view.toggle_all();
         self.reflow(cx);
     }
 }

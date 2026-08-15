@@ -1,10 +1,7 @@
-use crate::{assets::IconAsset, core::image::ImageId};
+use crate::assets::IconAsset;
 use gpui::ElementId;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub struct GroupHash(pub u64);
 
 /// Key by which images are ordered
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug, serde::Deserialize, serde::Serialize)]
@@ -89,29 +86,6 @@ impl Page {
             .position(|(p, _, _)| p == self)
             .expect("page should exist")
     }
-}
-
-#[derive(Clone, PartialEq)]
-pub enum Row {
-    Header(GroupHash),
-    Tiles(std::ops::Range<usize>),
-}
-
-impl Row {
-    pub fn chunk_tiles(offset: usize, len: usize, cols: usize) -> impl Iterator<Item = Row> {
-        (0..len).step_by(cols).map(move |start| {
-            let end = (start + cols).min(len);
-            let a = offset + start;
-            let b = offset + end;
-            Row::Tiles(a..b)
-        })
-    }
-}
-
-pub struct Group {
-    pub hash: GroupHash,
-    pub path: PathBuf,
-    pub image_ids: Vec<ImageId>,
 }
 
 #[derive(Clone)]

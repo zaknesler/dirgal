@@ -1,5 +1,9 @@
 use crate::ui::{
-    gallery::{Gallery, constant::*},
+    gallery::{
+        Gallery,
+        constant::*,
+        view::{GroupHash, Row},
+    },
     model::*,
     *,
 };
@@ -56,13 +60,12 @@ impl Gallery {
         let is_last_row = index == self.rows.len() - 1;
 
         let group = self
-            .groups
-            .iter()
-            .find(|g| g.hash == group_hash)
+            .grouped_view
+            .group(group_hash)
             .expect("group should exist");
         let segments = group_segments(&self.library.roots, &group.path);
-        let count = group.image_ids.len();
-        let is_collapsed = self.collapsed_groups.contains(&group_hash);
+        let count = group.range.len();
+        let is_collapsed = self.grouped_view.is_collapsed(group_hash);
 
         h_flex()
             .id(("header", group_hash.0))
@@ -76,7 +79,7 @@ impl Gallery {
             })
             .cursor_pointer()
             .group("header")
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(&group_hash, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(group_hash, cx)))
             .child(
                 Button::new(("chevron", group_hash.0))
                     .ghost()
@@ -90,7 +93,7 @@ impl Gallery {
                     .group_hover("header", |el| el.text_color(cx.theme().foreground))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.toggle_group(&group_hash, cx);
+                        this.toggle_group(group_hash, cx);
                     })),
             )
             .child(
@@ -119,7 +122,7 @@ impl Gallery {
         let is_only_row = index == 0;
         let is_last_row = index == self.rows.len() - 1;
 
-        let image_ids = self.filtered_images[range].to_vec();
+        let image_ids = self.row_image_ids(range);
 
         h_flex()
             .w_full()
@@ -329,7 +332,7 @@ impl Gallery {
             Page::Gallery if self.settings.view == View::Grouped => format!(
                 "{} images in {} folders",
                 util::format_num(self.filtered_images.len()),
-                util::format_num(self.groups.len())
+                util::format_num(self.grouped_view.group_count())
             ),
             Page::Gallery => format!("{} images", util::format_num(self.filtered_images.len())),
             Page::Bookmarks => format!(

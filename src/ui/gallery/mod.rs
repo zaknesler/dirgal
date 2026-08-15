@@ -1,6 +1,5 @@
 use crate::core::{
     config::Settings,
-    hash::hash_path,
     image::{ContentHash, ImageEntry, ImageId, SMALL_FILE_BYTES},
     store::Store,
 };
@@ -18,12 +17,14 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
 };
+use view::{GroupedView, Row};
 
 pub mod constant;
 pub mod handler;
 pub mod library;
 pub mod lightbox;
 pub mod render;
+pub mod view;
 
 /// Main gallery view: grid of thumbnails, search, bookmarks, and lightbox
 pub struct Gallery {
@@ -41,9 +42,8 @@ pub struct Gallery {
     // Data
     library: Library,
     filtered_images: Vec<ImageId>,
+    grouped_view: GroupedView,
     rows: Vec<Row>,
-    groups: Vec<Group>,
-    collapsed_groups: HashSet<GroupHash>,
 
     // Grid
     grid: ListState,
@@ -121,9 +121,8 @@ impl Gallery {
             sort_select,
             library: Library::empty(),
             filtered_images: Vec::new(),
+            grouped_view: GroupedView::new(),
             rows: Vec::new(),
-            groups: Vec::new(),
-            collapsed_groups: HashSet::new(),
             grid,
             tile_size: GRID_TILE_MIN,
             num_columns: 1,
@@ -276,32 +275,22 @@ impl Gallery {
         matches
     }
 
-    /// Group filtered images by parent directory which is contiguous since filtered_images is parent sorted
-    fn get_computed_groups(&self) -> Vec<Group> {
-        let mut groups: Vec<Group> = Vec::new();
-
-        for id in &self.filtered_images {
-            let parent = self
-                .get_image_entry(id)
-                .and_then(|entry| entry.id.path().parent())
-                .unwrap_or(Path::new(""));
-
-            match groups.last_mut() {
-                Some(group) if group.path == parent => group.image_ids.push(id.clone()),
-                _ => groups.push(Group {
-                    hash: GroupHash(hash_path(parent)),
-                    path: parent.to_path_buf(),
-                    image_ids: vec![id.clone()],
-                }),
-            }
-        }
-
-        groups
-    }
-
     /// Index of an image within the current filtered set
     fn get_visible_position(&self, id: &ImageId) -> Option<usize> {
         self.filtered_images.iter().position(|item| item == id)
+    }
+
+    /// Return image IDs for a rendered tile row
+    fn row_image_ids(&self, range: std::ops::Range<usize>) -> Vec<ImageId> {
+        if self.settings.view == View::Grouped {
+            self.grouped_view
+                .image_indices(range)
+                .iter()
+                .map(|index| self.filtered_images[*index].clone())
+                .collect()
+        } else {
+            self.filtered_images[range].to_vec()
+        }
     }
 
     /// Look up an image entry by file identity
@@ -364,7 +353,7 @@ impl Gallery {
         let visible: HashSet<ContentHash> = self.rows[start..end]
             .iter()
             .filter_map(|row| match row {
-                Row::Tiles(range) => Some(self.filtered_images[range.clone()].to_vec()),
+                Row::Tiles(range) => Some(self.row_image_ids(range.clone())),
                 Row::Header(_) => None,
             })
             .flatten()
@@ -577,37 +566,17 @@ impl Gallery {
     /// Rebuild filtered images, groups, and rows for the current page and query
     fn reflow(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
-        let mut filtered = self.get_visible_image_ids(&query);
-
-        // Grouped view needs same directory images contiguous and a stable sort by parent
-        // keeps their sort key order within each group intact
-        if self.settings.view == View::Grouped {
-            filtered.sort_by(
-                |a, b| match (self.get_image_entry(a), self.get_image_entry(b)) {
-                    (Some(x), Some(y)) => crate::core::image::compare_parents(x, y),
-                    _ => std::cmp::Ordering::Equal,
-                },
-            );
-        }
+        let filtered = self.get_visible_image_ids(&query);
         self.filtered_images = filtered;
+        self.grouped_view
+            .rebuild(&self.filtered_images, &self.library);
 
         let old_rows = std::mem::take(&mut self.rows);
         let cols = self.num_columns.max(1);
 
         if self.settings.view == View::Grouped {
-            self.groups = self.get_computed_groups();
-
-            let mut offset = 0;
-            for group in &self.groups {
-                self.rows.push(Row::Header(group.hash));
-                let len = group.image_ids.len();
-                if !self.collapsed_groups.contains(&group.hash) {
-                    self.rows.extend(Row::chunk_tiles(offset, len, cols));
-                }
-                offset += len;
-            }
+            self.rows = self.grouped_view.rows(cols);
         } else {
-            self.groups.clear();
             self.rows
                 .extend(Row::chunk_tiles(0, self.filtered_images.len(), cols));
         }
@@ -721,7 +690,13 @@ impl Gallery {
     fn scroll_to_image(&mut self, id: &ImageId) {
         // TODO: only "scroll" if it's not already in view
 
-        if let Some(row_ix) = self.get_visible_position(id).and_then(|pos| {
+        let position = if self.settings.view == View::Grouped {
+            self.grouped_view.image_position(&self.filtered_images, id)
+        } else {
+            self.get_visible_position(id)
+        };
+
+        if let Some(row_ix) = position.and_then(|pos| {
             self.rows.iter().position(|row| match row {
                 Row::Tiles(range) => range.contains(&pos),
                 Row::Header(_) => false,
@@ -792,11 +767,8 @@ impl Gallery {
     }
 
     /// Collapse or expand a directory group
-    fn toggle_group(&mut self, group_hash: &GroupHash, cx: &mut Context<Self>) {
-        if !self.collapsed_groups.remove(group_hash) {
-            self.collapsed_groups.insert(*group_hash);
-        }
-
+    fn toggle_group(&mut self, group_hash: view::GroupHash, cx: &mut Context<Self>) {
+        self.grouped_view.toggle_group(group_hash);
         self.reflow(cx);
     }
 
