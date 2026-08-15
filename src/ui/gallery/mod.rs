@@ -39,9 +39,9 @@ pub struct Gallery {
     // Data
     library: Library,
     filtered_images: Vec<ImageId>,
-    grid_view: GridView,
-    grouped_view: GroupedView,
-    list_view: ListView,
+    grid_view: Entity<GridView>,
+    grouped_view: Entity<GroupedView>,
+    list_view: Entity<ListView>,
     active_image: Option<ImageId>,
     selected_images: Vec<ImageId>,
 
@@ -99,6 +99,11 @@ impl Gallery {
         cx.subscribe_in(&sort_select, window, Self::on_sort)
             .detach();
 
+        let gallery = cx.entity().downgrade();
+        let grid_view = cx.new(|cx| GridView::new(gallery.clone(), cx));
+        let grouped_view = cx.new(|cx| GroupedView::new(gallery.clone(), cx));
+        let list_view = cx.new(|cx| ListView::new(gallery, cx));
+
         let mut this = Self {
             state,
             page: config.page,
@@ -110,9 +115,9 @@ impl Gallery {
             sort_select,
             library: Library::empty(),
             filtered_images: Vec::new(),
-            grid_view: GridView::new(),
-            grouped_view: GroupedView::new(),
-            list_view: ListView::new(),
+            grid_view,
+            grouped_view,
+            list_view,
             active_image: None,
             selected_images: Vec::new(),
             thumbs: HashMap::new(),
@@ -264,15 +269,6 @@ impl Gallery {
     /// Index of an image within the current filtered set
     fn get_visible_position(&self, id: &ImageId) -> Option<usize> {
         self.filtered_images.iter().position(|item| item == id)
-    }
-
-    /// Return image IDs for a grouped tile row
-    fn grouped_row_image_ids(&self, range: std::ops::Range<usize>) -> Vec<ImageId> {
-        self.grouped_view
-            .image_indices(range)
-            .iter()
-            .map(|index| self.filtered_images[*index].clone())
-            .collect()
     }
 
     /// Look up an image entry by file identity
@@ -530,8 +526,10 @@ impl Gallery {
         let query = self.input.read(cx).value();
         let filtered = self.get_visible_image_ids(&query);
         self.filtered_images = filtered;
-        self.grouped_view
-            .rebuild(&self.filtered_images, &self.library);
+        self.grouped_view.update(cx, |view, cx| {
+            view.rebuild(&self.filtered_images, &self.library);
+            cx.notify();
+        });
         cx.notify();
     }
 
@@ -617,12 +615,21 @@ impl Gallery {
 
     /// Scroll the active view to a target
     fn scroll_view(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {
+        let image_ids = self.filtered_images.clone();
         match self.settings.view {
-            View::Grid => self.grid_view.scroll_to(&self.filtered_images, target),
-            View::Grouped => self.grouped_view.scroll_to(&self.filtered_images, target),
-            View::List => self.list_view.scroll_to(&self.filtered_images, target),
+            View::Grid => self.grid_view.update(cx, |view, cx| {
+                view.scroll_to(&image_ids, target);
+                cx.notify();
+            }),
+            View::Grouped => self.grouped_view.update(cx, |view, cx| {
+                view.scroll_to(&image_ids, target);
+                cx.notify();
+            }),
+            View::List => self.list_view.update(cx, |view, cx| {
+                view.scroll_to(&image_ids, target);
+                cx.notify();
+            }),
         }
-        cx.notify();
     }
 
     /// Show the lightbox with the given image and stop generating thumbnails
@@ -662,17 +669,17 @@ impl Gallery {
     /// Select the next image in the given direction
     fn select_adjacent_image(&mut self, direction: view::Direction, cx: &mut Context<Self>) {
         let next = match self.settings.view {
-            View::Grid => self.grid_view.neighbor(
+            View::Grid => self.grid_view.read(cx).neighbor(
                 &self.filtered_images,
                 self.active_image.as_ref(),
                 direction,
             ),
-            View::Grouped => self.grouped_view.neighbor(
+            View::Grouped => self.grouped_view.read(cx).neighbor(
                 &self.filtered_images,
                 self.active_image.as_ref(),
                 direction,
             ),
-            View::List => self.list_view.neighbor(
+            View::List => self.list_view.read(cx).neighbor(
                 &self.filtered_images,
                 self.active_image.as_ref(),
                 direction,
@@ -683,12 +690,6 @@ impl Gallery {
             self.select_single_image(&next, cx);
             self.scroll_to_image(&next, cx);
         }
-    }
-
-    /// Collapse or expand a directory group
-    fn toggle_group(&mut self, group_hash: view::GroupHash, cx: &mut Context<Self>) {
-        self.grouped_view.toggle_group(group_hash);
-        cx.notify();
     }
 
     /// Add or remove a bookmark and persist the change
@@ -857,31 +858,55 @@ impl Gallery {
     /// Enlarge thumbnails in the active view
     fn zoom_view_in(&mut self, cx: &mut Context<Self>) {
         match self.settings.view {
-            View::Grid => self.grid_view.zoom_in(),
-            View::Grouped => self.grouped_view.zoom_in(),
-            View::List => self.list_view.zoom_in(),
-        };
-        cx.notify();
+            View::Grid => self.grid_view.update(cx, |view, cx| {
+                view.zoom_in();
+                cx.notify();
+            }),
+            View::Grouped => self.grouped_view.update(cx, |view, cx| {
+                view.zoom_in();
+                cx.notify();
+            }),
+            View::List => self.list_view.update(cx, |view, cx| {
+                view.zoom_in();
+                cx.notify();
+            }),
+        }
     }
 
     /// Shrink thumbnails in the active view
     fn zoom_view_out(&mut self, cx: &mut Context<Self>) {
         match self.settings.view {
-            View::Grid => self.grid_view.zoom_out(),
-            View::Grouped => self.grouped_view.zoom_out(),
-            View::List => self.list_view.zoom_out(),
-        };
-        cx.notify();
+            View::Grid => self.grid_view.update(cx, |view, cx| {
+                view.zoom_out();
+                cx.notify();
+            }),
+            View::Grouped => self.grouped_view.update(cx, |view, cx| {
+                view.zoom_out();
+                cx.notify();
+            }),
+            View::List => self.list_view.update(cx, |view, cx| {
+                view.zoom_out();
+                cx.notify();
+            }),
+        }
     }
 
     /// Restore the active view's default thumbnail size
     fn reset_view_zoom(&mut self, cx: &mut Context<Self>) {
         match self.settings.view {
-            View::Grid => self.grid_view.zoom_reset(),
-            View::Grouped => self.grouped_view.zoom_reset(),
-            View::List => self.list_view.zoom_reset(),
-        };
-        cx.notify();
+            View::Grid => self.grid_view.update(cx, |view, cx| {
+                view.zoom_reset();
+                cx.notify();
+            }),
+            View::Grouped => self.grouped_view.update(cx, |view, cx| {
+                view.zoom_reset();
+                cx.notify();
+            }),
+            View::List => self.list_view.update(cx, |view, cx| {
+                view.zoom_reset();
+                cx.notify();
+            }),
+        }
     }
 
     /// Position of an image in the bookmark list, if bookmarked

@@ -1,12 +1,22 @@
 use super::{Direction, GalleryView, ScrollTarget};
 use crate::{
     core::image::ImageId,
-    ui::gallery::constant::{GRID_GAP, GRID_OUTER_MARGIN, GRID_TILE_MIN, MAX_COLS, MIN_COLS},
+    ui::gallery::{
+        Gallery,
+        constant::{
+            GRID_CACHE_ITEMS, GRID_GAP, GRID_OUTER_MARGIN, GRID_TILE_MIN, MAX_COLS, MIN_COLS,
+        },
+    },
 };
-use gpui::{Pixels, ScrollStrategy, UniformListScrollHandle};
+use gpui::{
+    Context, Pixels, Render, ScrollStrategy, UniformListScrollHandle, WeakEntity, Window, div,
+    prelude::*, px, uniform_list,
+};
+use gpui_component::{h_flex, scroll::Scrollbar};
 use std::ops::Range;
 
 pub struct GridView {
+    gallery: WeakEntity<Gallery>,
     scroll_handle: UniformListScrollHandle,
     visible_rows: Range<usize>,
     tile_size: f32,
@@ -16,8 +26,13 @@ pub struct GridView {
 
 impl GridView {
     /// Create an empty grid view
-    pub fn new() -> Self {
+    pub fn new(gallery: WeakEntity<Gallery>, cx: &mut Context<Self>) -> Self {
+        if let Some(parent) = gallery.upgrade() {
+            cx.observe(&parent, |_, _, cx| cx.notify()).detach();
+        }
+
         Self {
+            gallery,
             scroll_handle: UniformListScrollHandle::new(),
             visible_rows: 0..0,
             tile_size: GRID_TILE_MIN,
@@ -64,15 +79,77 @@ impl GridView {
         let end = (self.visible_rows.end * self.columns).min(image_count);
         start..end
     }
+}
 
-    /// Return the current tile size
-    pub fn tile_size(&self) -> f32 {
-        self.tile_size
-    }
+impl Render for GridView {
+    /// Render the virtualized flat grid
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.update_layout(window.viewport_size().width);
+        let Some(gallery) = self.gallery.upgrade() else {
+            return div();
+        };
+        let image_count = gallery.read(cx).filtered_images.len();
+        let visible = self.visible_image_range(image_count);
+        let image_ids = gallery.read(cx).filtered_images[visible].to_vec();
+        gallery.update(cx, |gallery, cx| gallery.enqueue_thumbnails(&image_ids, cx));
 
-    /// Return the grid scroll handle
-    pub fn scroll_handle(&self) -> &UniformListScrollHandle {
-        &self.scroll_handle
+        let row_count = self.row_count(image_count);
+        let tile_size = self.tile_size;
+        let scroll_handle = self.scroll_handle.clone();
+
+        div()
+            .image_cache(crate::ui::cache::simple_lru_cache(
+                crate::ui::CONTEXT_GRID,
+                GRID_CACHE_ITEMS,
+            ))
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .child(
+                uniform_list(
+                    "grid",
+                    row_count,
+                    cx.processor(move |view, range: Range<usize>, _, cx| {
+                        let Some(gallery) = view.gallery.upgrade() else {
+                            return Vec::new();
+                        };
+                        if view.set_visible_rows(range.clone()) {
+                            cx.notify();
+                        }
+                        let image_count = gallery.read(cx).filtered_images.len();
+                        let mut rows = Vec::new();
+
+                        for row in range {
+                            let range = view.row_range(row, image_count);
+                            let image_ids = gallery.read(cx).filtered_images[range].to_vec();
+
+                            rows.push(
+                                h_flex()
+                                    .w_full()
+                                    .gap(px(GRID_GAP))
+                                    .px(px(GRID_OUTER_MARGIN))
+                                    .pb(px(GRID_GAP))
+                                    .children(image_ids.iter().map(|id| {
+                                        super::thumbnail::ImageTile::render(
+                                            &gallery, id, tile_size, cx,
+                                        )
+                                    }))
+                                    .into_any_element(),
+                            );
+                        }
+
+                        rows
+                    }),
+                )
+                .track_scroll(&scroll_handle)
+                .size_full(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(Scrollbar::vertical(&scroll_handle)),
+            )
     }
 }
 

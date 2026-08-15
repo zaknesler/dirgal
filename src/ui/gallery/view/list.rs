@@ -1,9 +1,20 @@
 use super::{Direction, GalleryView, ScrollTarget};
-use crate::core::image::ImageId;
-use gpui::{ScrollStrategy, UniformListScrollHandle};
+use crate::{
+    core::{hash::hash_path, image::ImageId},
+    ui::gallery::{
+        Gallery,
+        constant::{GRID_CACHE_ITEMS, GRID_OUTER_MARGIN, TRUNCATE_STR},
+    },
+};
+use gpui::{
+    ClickEvent, Context, Render, ScrollStrategy, SharedString, UniformListScrollHandle, WeakEntity,
+    Window, div, prelude::*, px, uniform_list,
+};
+use gpui_component::{ActiveTheme, InteractiveElementExt, h_flex, scroll::Scrollbar, v_flex};
 use std::ops::Range;
 
 pub struct ListView {
+    gallery: WeakEntity<Gallery>,
     scroll_handle: UniformListScrollHandle,
     visible_range: Range<usize>,
     thumbnail_size: f32,
@@ -11,8 +22,13 @@ pub struct ListView {
 
 impl ListView {
     /// Create an empty list view
-    pub fn new() -> Self {
+    pub fn new(gallery: WeakEntity<Gallery>, cx: &mut Context<Self>) -> Self {
+        if let Some(parent) = gallery.upgrade() {
+            cx.observe(&parent, |_, _, cx| cx.notify()).detach();
+        }
+
         Self {
+            gallery,
             scroll_handle: UniformListScrollHandle::new(),
             visible_range: 0..0,
             thumbnail_size: 80.0,
@@ -32,15 +48,117 @@ impl ListView {
     pub fn visible_range(&self, image_count: usize) -> Range<usize> {
         self.visible_range.start.min(image_count)..self.visible_range.end.min(image_count)
     }
+}
 
-    /// Return the list scroll handle
-    pub fn scroll_handle(&self) -> &UniformListScrollHandle {
-        &self.scroll_handle
-    }
+impl Render for ListView {
+    /// Render the virtualized image list
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(gallery) = self.gallery.upgrade() else {
+            return div();
+        };
+        let image_count = gallery.read(cx).filtered_images.len();
+        let visible = self.visible_range(image_count);
+        let image_ids = gallery.read(cx).filtered_images[visible].to_vec();
+        gallery.update(cx, |gallery, cx| gallery.enqueue_thumbnails(&image_ids, cx));
 
-    /// Return the current thumbnail size
-    pub fn thumbnail_size(&self) -> f32 {
-        self.thumbnail_size
+        let thumbnail_size = self.thumbnail_size;
+        let scroll_handle = self.scroll_handle.clone();
+
+        div()
+            .image_cache(crate::ui::cache::simple_lru_cache(
+                crate::ui::CONTEXT_GRID,
+                GRID_CACHE_ITEMS,
+            ))
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .child(
+                uniform_list(
+                    "list",
+                    image_count,
+                    cx.processor(move |view, range: Range<usize>, _, cx| {
+                        let Some(gallery) = view.gallery.upgrade() else {
+                            return Vec::new();
+                        };
+                        if view.set_visible_range(range.clone()) {
+                            cx.notify();
+                        }
+                        let image_ids = gallery.read(cx).filtered_images[range.clone()].to_vec();
+                        let mut items = Vec::new();
+
+                        for (index, id) in range.zip(image_ids) {
+                            let gallery_state = gallery.read(cx);
+                            let image = gallery_state
+                                .get_image_entry(&id)
+                                .expect("image should exist");
+                            let path = image.id.path().to_path_buf();
+                            let thumb = super::thumbnail::Thumbnail::render(gallery_state, &id);
+                            let click_id = id.clone();
+                            let open_id = id.clone();
+                            let click_gallery = gallery.clone();
+                            let open_gallery = gallery.clone();
+
+                            items.push(
+                                h_flex()
+                                    .id(hash_path(&path) as usize)
+                                    .px(px(GRID_OUTER_MARGIN))
+                                    .py_2()
+                                    .w_full()
+                                    .gap_4()
+                                    .when(index != 0, |el| el.border_t_1())
+                                    .items_center()
+                                    .rounded_md()
+                                    .overflow_hidden()
+                                    .border_color(cx.theme().border)
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(
+                                        move |_, event: &ClickEvent, window, cx| {
+                                            cx.stop_propagation();
+                                            click_gallery.update(cx, |gallery, cx| {
+                                                gallery.on_thumb_click_event(
+                                                    &click_id, event, window, cx,
+                                                )
+                                            });
+                                        },
+                                    ))
+                                    .on_double_click(cx.listener(move |_, _, _, cx| {
+                                        cx.stop_propagation();
+                                        open_gallery.update(cx, |gallery, cx| {
+                                            gallery.open_lightbox(&open_id, cx)
+                                        });
+                                    }))
+                                    .child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .overflow_hidden()
+                                            .size(px(thumbnail_size))
+                                            .child(thumb),
+                                    )
+                                    .child(
+                                        v_flex()
+                                            .justify_center()
+                                            .flex_1()
+                                            .overflow_hidden()
+                                            .text_overflow(gpui::TextOverflow::TruncateMiddle(
+                                                SharedString::new_static(TRUNCATE_STR),
+                                            ))
+                                            .child(path.to_string_lossy().to_string()),
+                                    ),
+                            );
+                        }
+
+                        items
+                    }),
+                )
+                .track_scroll(&scroll_handle)
+                .size_full(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(Scrollbar::vertical(&scroll_handle)),
+            )
     }
 }
 

@@ -1,10 +1,11 @@
 pub mod grid;
 pub mod grouped;
 pub mod list;
+pub(crate) mod thumbnail;
 
 use crate::core::image::ImageId;
 pub use grid::GridView;
-pub use grouped::{GroupHash, GroupedView, Row};
+pub use grouped::{GroupHash, GroupedView};
 pub use list::ListView;
 
 #[derive(Clone, Copy)]

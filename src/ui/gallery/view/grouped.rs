@@ -1,15 +1,30 @@
 use super::{Direction, GalleryView, ScrollTarget};
 use crate::{
+    assets::IconAsset,
     core::{
         hash::hash_path,
         image::{ImageId, compare_parents},
+        path::group_segments,
+        util,
     },
     ui::gallery::{
+        Gallery,
         constant::{GRID_GAP, GRID_OUTER_MARGIN, GRID_OVERDRAW, GRID_TILE_MIN, MAX_COLS, MIN_COLS},
         library::Library,
     },
 };
-use gpui::{ListAlignment, ListOffset, ListState, Pixels, px};
+use gpui::{
+    AnyElement, Context, Entity, ListAlignment, ListOffset, ListState, Pixels, Render, WeakEntity,
+    Window, div, list, prelude::*, px,
+};
+use gpui_component::{
+    ActiveTheme, Sizable as _,
+    breadcrumb::Breadcrumb,
+    button::{Button, ButtonVariants as _},
+    h_flex,
+    scroll::Scrollbar,
+    tag::Tag,
+};
 use std::{
     collections::HashSet,
     ops::Range,
@@ -42,6 +57,7 @@ pub struct Group {
 }
 
 pub struct GroupedView {
+    gallery: WeakEntity<Gallery>,
     ordered_indices: Vec<usize>,
     rows: Vec<Row>,
     groups: Vec<Group>,
@@ -54,8 +70,13 @@ pub struct GroupedView {
 
 impl GroupedView {
     /// Create an empty grouped view
-    pub fn new() -> Self {
+    pub fn new(gallery: WeakEntity<Gallery>, cx: &mut Context<Self>) -> Self {
+        if let Some(parent) = gallery.upgrade() {
+            cx.observe(&parent, |_, _, cx| cx.notify()).detach();
+        }
+
         Self {
+            gallery,
             ordered_indices: Vec::new(),
             rows: Vec::new(),
             groups: Vec::new(),
@@ -99,21 +120,6 @@ impl GroupedView {
     /// Return a grouped row
     pub fn row(&self, index: usize) -> Option<Row> {
         self.rows.get(index).cloned()
-    }
-
-    /// Return the number of grouped rows
-    pub fn row_count(&self) -> usize {
-        self.rows.len()
-    }
-
-    /// Return the grouped list state
-    pub fn list_state(&self) -> &ListState {
-        &self.list_state
-    }
-
-    /// Return the current tile size
-    pub fn tile_size(&self) -> f32 {
-        self.tile_size
     }
 
     /// Find a group by hash
@@ -260,6 +266,154 @@ impl GroupedView {
             .filter(|group| !self.collapsed_groups.contains(&group.hash))
             .flat_map(|group| self.ordered_indices[group.range.clone()].iter().copied())
             .collect()
+    }
+
+    /// Render one grouped row
+    fn render_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(row) = self.row(index) else {
+            return div().into_any_element();
+        };
+        let Some(gallery) = self.gallery.upgrade() else {
+            return div().into_any_element();
+        };
+
+        match row {
+            Row::Header(group_hash) => self.render_header(&gallery, group_hash, index, cx),
+            Row::Tiles(range) => self.render_tiles(&gallery, range, index, cx),
+        }
+    }
+
+    /// Render a group header
+    fn render_header(
+        &self,
+        gallery: &Entity<Gallery>,
+        group_hash: GroupHash,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_last_row = index == self.rows.len() - 1;
+        let group = self.group(group_hash).expect("group should exist");
+        let segments = group_segments(&gallery.read(cx).library.roots, &group.path);
+        let count = group.range.len();
+        let is_collapsed = self.is_collapsed(group_hash);
+
+        h_flex()
+            .id(("header", group_hash.0))
+            .w_full()
+            .items_center()
+            .gap_2()
+            .px(px(GRID_OUTER_MARGIN))
+            .pt(px(GRID_OUTER_MARGIN))
+            .when(!is_collapsed || is_last_row, |el| {
+                el.pb(px(GRID_OUTER_MARGIN))
+            })
+            .cursor_pointer()
+            .group("header")
+            .on_click(cx.listener(move |view, _, _, cx| {
+                view.toggle_group(group_hash);
+                cx.notify();
+            }))
+            .child(
+                Button::new(("chevron", group_hash.0))
+                    .ghost()
+                    .small()
+                    .icon(if is_collapsed {
+                        IconAsset::ChevronRight
+                    } else {
+                        IconAsset::ChevronDown
+                    })
+                    .text_color(cx.theme().muted_foreground)
+                    .group_hover("header", |el| el.text_color(cx.theme().foreground))
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        cx.stop_propagation();
+                        view.toggle_group(group_hash);
+                        cx.notify();
+                    })),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .flex_none()
+                    .text_sm()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(Breadcrumb::new().children(segments)),
+            )
+            .child(
+                Tag::new()
+                    .small()
+                    .child(util::format_num(count).to_string()),
+            )
+            .into_any_element()
+    }
+
+    /// Render a row of image tiles
+    fn render_tiles(
+        &self,
+        gallery: &Entity<Gallery>,
+        range: Range<usize>,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_only_row = index == 0;
+        let is_last_row = index == self.rows.len() - 1;
+        let gallery_state = gallery.read(cx);
+        let image_ids = self
+            .image_indices(range)
+            .iter()
+            .map(|index| gallery_state.filtered_images[*index].clone())
+            .collect::<Vec<_>>();
+
+        h_flex()
+            .w_full()
+            .px(px(GRID_OUTER_MARGIN))
+            .gap(px(GRID_GAP))
+            .when(is_only_row, |el| el.pt(px(GRID_OUTER_MARGIN)))
+            .when_else(
+                is_last_row,
+                |el| el.pb(px(GRID_OUTER_MARGIN)),
+                |el| el.pb(px(GRID_GAP)),
+            )
+            .children(
+                image_ids
+                    .iter()
+                    .map(|id| super::thumbnail::ImageTile::render(gallery, id, self.tile_size, cx)),
+            )
+            .into_any_element()
+    }
+}
+
+impl Render for GroupedView {
+    /// Render the virtualized grouped grid
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.update_layout(window.viewport_size().width);
+        if let Some(gallery) = self.gallery.upgrade() {
+            let visible = self.visible_image_indices(window.viewport_size().height.as_f32());
+            gallery.update(cx, |gallery, cx| {
+                gallery.enqueue_grouped_thumbnails(visible, cx)
+            });
+        }
+
+        div()
+            .image_cache(crate::ui::cache::simple_lru_cache(
+                crate::ui::CONTEXT_GRID,
+                crate::ui::gallery::constant::GRID_CACHE_ITEMS,
+            ))
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .child(
+                list(
+                    self.list_state.clone(),
+                    cx.processor(|view, index, _, cx| view.render_row(index, cx)),
+                )
+                .size_full(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(Scrollbar::vertical(&self.list_state)),
+            )
     }
 }
 

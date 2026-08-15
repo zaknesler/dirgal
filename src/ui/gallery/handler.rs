@@ -165,9 +165,12 @@ impl Gallery {
         }
 
         let first = match self.settings.view {
-            View::Grid => self.grid_view.first_image(&self.filtered_images),
-            View::Grouped => self.grouped_view.first_image(&self.filtered_images),
-            View::List => self.list_view.first_image(&self.filtered_images),
+            View::Grid => self.grid_view.read(cx).first_image(&self.filtered_images),
+            View::Grouped => self
+                .grouped_view
+                .read(cx)
+                .first_image(&self.filtered_images),
+            View::List => self.list_view.read(cx).first_image(&self.filtered_images),
         };
 
         if let Some(id) = first {
@@ -409,8 +412,9 @@ impl Gallery {
                 .parent()
                 .unwrap_or(Path::new(""))
                 .to_path_buf();
-            self.grouped_view
-                .expand_group(GroupHash(hash_path(&parent)));
+            self.grouped_view.update(cx, |view, _| {
+                view.expand_group(GroupHash(hash_path(&parent)))
+            });
         }
 
         self.page = Page::Gallery;
@@ -482,7 +486,9 @@ impl Gallery {
             return;
         }
 
-        self.grouped_view.toggle_groups();
-        cx.notify();
+        self.grouped_view.update(cx, |view, cx| {
+            view.toggle_groups();
+            cx.notify();
+        });
     }
 }
