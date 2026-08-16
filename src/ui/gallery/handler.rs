@@ -304,7 +304,6 @@ impl Gallery {
             actions::DeleteFile::Current => self.current_image_paths(),
             actions::DeleteFile::Path(path) => vec![path.clone()],
         };
-        dbg!(&paths);
         if paths.is_empty() {
             return;
         }
