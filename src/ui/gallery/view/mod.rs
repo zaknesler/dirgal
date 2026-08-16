@@ -4,6 +4,7 @@ pub mod list;
 pub(crate) mod thumbnail;
 
 use crate::core::image::ImageId;
+use gpui::Modifiers;
 pub use grid::GridView;
 pub use grouped::{GroupHash, GroupedView};
 pub use list::ListView;
@@ -22,8 +23,36 @@ pub enum ScrollTarget {
     Image(ImageId),
 }
 
+#[derive(Clone)]
+pub enum GalleryViewEvent {
+    SelectImage { id: ImageId, mode: SelectionMode },
+    OpenImage(ImageId),
+    VisibleImagesChanged(Vec<ImageId>),
+}
+
+#[derive(Clone, Copy)]
+pub enum SelectionMode {
+    Replace,
+    Toggle,
+    Extend,
+}
+
+impl From<Modifiers> for SelectionMode {
+    /// Convert click modifiers into a selection mode
+    fn from(modifiers: Modifiers) -> Self {
+        // TODO: should toggling really need cmd/ctrl?
+        if modifiers.secondary() {
+            Self::Toggle
+        } else if modifiers.shift {
+            Self::Extend
+        } else {
+            Self::Replace
+        }
+    }
+}
+
 pub trait GalleryView {
-    /// Find the adjacent image
+    /// Find the adjacent image in the given direction
     fn neighbor(
         &self,
         image_ids: &[ImageId],
@@ -32,7 +61,7 @@ pub trait GalleryView {
     ) -> Option<ImageId>;
 
     /// Scroll to the requested target
-    fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget);
+    fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) -> bool;
 
     /// Return the first image available to the view
     fn first_image(&self, image_ids: &[ImageId]) -> Option<ImageId> {

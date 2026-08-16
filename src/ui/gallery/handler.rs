@@ -1,5 +1,5 @@
 use crate::ui::{
-    gallery::view::{Direction, GalleryView, GroupHash, ScrollTarget},
+    gallery::view::{Direction, GalleryViewEvent, GroupHash, ScrollTarget, SelectionMode},
     model::*,
     *,
 };
@@ -11,7 +11,7 @@ use crate::{
     },
     ui::gallery::Gallery,
 };
-use gpui::{ClickEvent, Context, Entity, Window};
+use gpui::{Context, Entity, Window};
 use gpui_component::WindowExt;
 use gpui_component::{
     input::{InputEvent, InputState},
@@ -92,24 +92,26 @@ impl Gallery {
         };
     }
 
-    pub fn on_thumb_click_event(
-        &mut self,
-        id: &ImageId,
-        event: &ClickEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if event.modifiers().secondary() && self.selected_images.contains(id) {
-            self.remove_image_from_selection(id, cx);
-        } else if event.modifiers().secondary() {
-            self.add_image_to_selection(id, cx);
-        } else if event.modifiers().shift {
-            self.add_images_until_selection(id, cx);
-        } else {
-            self.select_single_image(id, cx);
+    /// Handle an interaction emitted by a gallery view
+    pub fn on_view_event(&mut self, event: &GalleryViewEvent, cx: &mut Context<Self>) {
+        match event {
+            GalleryViewEvent::SelectImage { id, mode } => match mode {
+                SelectionMode::Toggle if self.selected_images.contains(id) => {
+                    self.remove_image_from_selection(id, cx);
+                }
+                SelectionMode::Toggle => {
+                    self.add_image_to_selection(id, cx);
+                }
+                SelectionMode::Extend => {
+                    self.add_images_until_selection(id, cx);
+                }
+                SelectionMode::Replace => self.select_single_image(id, cx),
+            },
+            GalleryViewEvent::OpenImage(id) => self.open_lightbox(id, cx),
+            GalleryViewEvent::VisibleImagesChanged(ids) => {
+                self.update_visible_thumbnails(ids, cx);
+            }
         }
-
-        cx.notify();
     }
 
     pub fn on_up(&mut self, _: &actions::Up, _: &mut Window, cx: &mut Context<Self>) {
@@ -164,14 +166,7 @@ impl Gallery {
             return;
         }
 
-        let first = match self.settings.view {
-            View::Grid => self.grid_view.read(cx).first_image(&self.filtered_images),
-            View::Grouped => self
-                .grouped_view
-                .read(cx)
-                .first_image(&self.filtered_images),
-            View::List => self.list_view.read(cx).first_image(&self.filtered_images),
-        };
+        let first = self.current_view(cx).first_image(&self.filtered_images);
 
         if let Some(id) = first {
             self.open_lightbox(&id, cx);
@@ -482,13 +477,6 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings.view != View::Grouped {
-            return;
-        }
-
-        self.grouped_view.update(cx, |view, cx| {
-            view.toggle_groups();
-            cx.notify();
-        });
+        self.update_current_view(cx, |view| view.toggle_groups());
     }
 }

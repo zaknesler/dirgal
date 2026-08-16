@@ -1,4 +1,4 @@
-use super::{Direction, GalleryView, ScrollTarget};
+use super::{Direction, GalleryView, GalleryViewEvent, ScrollTarget};
 use crate::{
     assets::IconAsset,
     core::{
@@ -14,8 +14,8 @@ use crate::{
     },
 };
 use gpui::{
-    AnyElement, Context, Entity, ListAlignment, ListOffset, ListState, Pixels, Render, WeakEntity,
-    Window, div, list, prelude::*, px,
+    AnyElement, Context, Entity, EventEmitter, ListAlignment, ListOffset, ListState, Pixels,
+    Render, WeakEntity, Window, div, list, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, Sizable as _,
@@ -388,9 +388,11 @@ impl Render for GroupedView {
         self.update_layout(window.viewport_size().width);
         if let Some(gallery) = self.gallery.upgrade() {
             let visible = self.visible_image_indices(window.viewport_size().height.as_f32());
-            gallery.update(cx, |gallery, cx| {
-                gallery.enqueue_grouped_thumbnails(visible, cx)
-            });
+            let image_ids = visible
+                .into_iter()
+                .filter_map(|index| gallery.read(cx).filtered_images.get(index).cloned())
+                .collect::<Vec<_>>();
+            cx.emit(GalleryViewEvent::VisibleImagesChanged(image_ids));
         }
 
         div()
@@ -416,6 +418,8 @@ impl Render for GroupedView {
             )
     }
 }
+
+impl EventEmitter<GalleryViewEvent> for GroupedView {}
 
 impl GalleryView for GroupedView {
     /// Find the adjacent image in expanded groups
@@ -445,58 +449,73 @@ impl GalleryView for GroupedView {
     }
 
     /// Scroll the grouped list to a target
-    fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) {
+    fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) -> bool {
         match target {
-            ScrollTarget::Start => self.list_state.scroll_to(ListOffset {
-                item_ix: 0,
-                offset_in_item: px(0.0),
-            }),
-            ScrollTarget::End => self.list_state.scroll_to_end(),
+            ScrollTarget::Start => {
+                self.list_state.scroll_to(ListOffset {
+                    item_ix: 0,
+                    offset_in_item: px(0.0),
+                });
+                true
+            }
+            ScrollTarget::End => {
+                self.list_state.scroll_to_end();
+                true
+            }
             ScrollTarget::Image(id) => {
                 let Some(position) = self.image_position(image_ids, &id) else {
-                    return;
+                    return false;
                 };
                 let Some(row) = self.rows.iter().position(|row| match row {
                     Row::Header(_) => false,
                     Row::Tiles(range) => range.contains(&position),
                 }) else {
-                    return;
+                    return false;
                 };
                 self.list_state.scroll_to(ListOffset {
                     item_ix: row,
                     offset_in_item: px(0.0),
                 });
+                true
             }
         }
     }
 
     /// Return the first image in an expanded group
     fn first_image(&self, image_ids: &[ImageId]) -> Option<ImageId> {
-        GroupedView::first_image(self, image_ids)
+        self.first_image(image_ids)
     }
 
     /// Enlarge grouped tiles
     fn zoom_in(&mut self) -> bool {
         let current = self.column_override.unwrap_or(self.columns);
-        self.column_override = Some(current.saturating_sub(1).max(MIN_COLS));
+        if current <= MIN_COLS {
+            return false;
+        }
+        self.column_override = Some(current - 1);
         true
     }
 
     /// Shrink grouped tiles
     fn zoom_out(&mut self) -> bool {
         let current = self.column_override.unwrap_or(self.columns);
-        self.column_override = Some((current + 1).min(MAX_COLS));
+        if current >= MAX_COLS {
+            return false;
+        }
+        self.column_override = Some(current + 1);
         true
     }
 
     /// Restore automatic grouped sizing
     fn zoom_reset(&mut self) -> bool {
-        self.column_override = None;
-        true
+        self.column_override.take().is_some()
     }
 
     /// Collapse or expand every group
     fn toggle_groups(&mut self) -> bool {
+        if self.groups.is_empty() {
+            return false;
+        }
         self.toggle_all();
         true
     }

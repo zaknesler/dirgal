@@ -53,12 +53,10 @@ pub struct Gallery {
 }
 
 impl Gallery {
-    /// Create the gallery entity
     pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(window, cx))
     }
 
-    /// Build the gallery from app state; thumbnails are queued lazily as rows enter the viewport
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state::SharedAppState::from_app(cx).entity().clone();
 
@@ -99,10 +97,25 @@ impl Gallery {
         cx.subscribe_in(&sort_select, window, Self::on_sort)
             .detach();
 
+        // Create the entities for each of the views
         let gallery = cx.entity().downgrade();
         let grid_view = cx.new(|cx| GridView::new(gallery.clone(), cx));
         let grouped_view = cx.new(|cx| GroupedView::new(gallery.clone(), cx));
         let list_view = cx.new(|cx| ListView::new(gallery, cx));
+
+        // Subscribe to each view so that the gallery can be notified of their events
+        cx.subscribe_in(&grid_view, window, |gallery, _, event, _, cx| {
+            gallery.on_view_event(event, cx);
+        })
+        .detach();
+        cx.subscribe_in(&grouped_view, window, |gallery, _, event, _, cx| {
+            gallery.on_view_event(event, cx);
+        })
+        .detach();
+        cx.subscribe_in(&list_view, window, |gallery, _, event, _, cx| {
+            gallery.on_view_event(event, cx);
+        })
+        .detach();
 
         let mut this = Self {
             state,
@@ -179,6 +192,41 @@ impl Gallery {
             window,
             cx,
         );
+    }
+
+    /// Return the current gallery view
+    fn current_view<'a>(&self, cx: &'a App) -> &'a dyn GalleryView {
+        match self.settings.view {
+            View::Grid => self.grid_view.read(cx),
+            View::Grouped => self.grouped_view.read(cx),
+            View::List => self.list_view.read(cx),
+        }
+    }
+
+    /// Apply a command to the current gallery view
+    fn update_current_view(
+        &self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut dyn GalleryView) -> bool,
+    ) {
+        // This kinda mimics the way gpui does these callbacks internally
+        match self.settings.view {
+            View::Grid => self.grid_view.update(cx, |view, cx| {
+                if update(view) {
+                    cx.notify();
+                }
+            }),
+            View::Grouped => self.grouped_view.update(cx, |view, cx| {
+                if update(view) {
+                    cx.notify();
+                }
+            }),
+            View::List => self.list_view.update(cx, |view, cx| {
+                if update(view) {
+                    cx.notify();
+                }
+            }),
+        }
     }
 
     /// Toggle sort direction from the toolbar button
@@ -293,10 +341,12 @@ impl Gallery {
         };
         let hash = entry.content_hash;
 
+        // Don't continue if the thumbnail is already known or queued
         if !matches!(self.thumbs.get(&hash), None | Some(ThumbState::Unknown)) {
             return false;
         }
 
+        // Don't generate unless the file is small or the thumb path exists
         if entry.bytes < SMALL_FILE_BYTES {
             self.thumbs
                 .insert(hash, ThumbState::Ready(entry.id.clone_path()));
@@ -311,52 +361,30 @@ impl Gallery {
         true
     }
 
-    /// Queue thumbnails for the given images
-    fn enqueue_thumbnails(&mut self, image_ids: &[ImageId], cx: &mut Context<Self>) {
+    /// Queue visible thumbnails and remove any queued thumbnails that are no longer visible
+    fn update_visible_thumbnails(&mut self, image_ids: &[ImageId], cx: &mut Context<Self>) {
+        let visible: HashSet<ContentHash> = image_ids
+            .iter()
+            .filter_map(|id| self.get_image_entry(id).map(|entry| entry.content_hash))
+            .collect();
+
+        // Only retain visible thumbnails, ignore thumbnails that aren't visible
+        let thumbs = &mut self.thumbs;
+        self.queue.retain(|hash| {
+            let retain = visible.contains(hash);
+            if !retain && matches!(thumbs.get(hash), Some(ThumbState::Queued)) {
+                thumbs.insert(*hash, ThumbState::Unknown);
+            }
+            retain
+        });
+
         let mut changed = false;
         for id in image_ids {
             changed |= self.enqueue_thumb(id);
         }
         if changed {
             self.process_queue(cx);
-        }
-    }
-
-    /// Queue thumbnails near the grouped viewport
-    fn enqueue_grouped_thumbnails(&mut self, visible_indices: Vec<usize>, cx: &mut Context<Self>) {
-        let visible_ids: Vec<ImageId> = visible_indices
-            .into_iter()
-            .map(|index| self.filtered_images[index].clone())
-            .collect();
-        let visible: HashSet<ContentHash> = visible_ids
-            .iter()
-            .filter_map(|id| self.get_image_entry(id).map(|entry| entry.content_hash))
-            .collect();
-
-        // Cancel jobs for rows that have scrolled out of view before they start
-        let stale: Vec<ContentHash> = self
-            .queue
-            .iter()
-            .filter(|hash| !visible.contains(hash))
-            .copied()
-            .collect();
-        for hash in stale {
-            if matches!(self.thumbs.get(&hash), Some(ThumbState::Queued)) {
-                self.thumbs.insert(hash, ThumbState::Unknown);
-            }
-        }
-        self.queue.retain(|hash| visible.contains(hash));
-
-        let mut changed = false;
-        for hash in visible {
-            if let Some(entry) = self.library.primary_for_content(&hash) {
-                let id = entry.id.clone();
-                changed |= self.enqueue_thumb(&id);
-            }
-        }
-
-        if changed {
-            self.process_queue(cx);
+            cx.notify();
         }
     }
 
@@ -468,8 +496,12 @@ impl Gallery {
     /// Clear transient UI state associated with removed or no longer loaded images
     fn prune_removed_images(&mut self, removed_ids: &HashSet<ImageId>) {
         let library = &self.library;
+
+        // The selected images should only contain images that are still in the library
         self.selected_images
             .retain(|id| !removed_ids.contains(id) && library.contains_id(id));
+
+        // The active image should be cleared if it is no longer in the library
         if self
             .active_image
             .as_ref()
@@ -477,6 +509,8 @@ impl Gallery {
         {
             self.active_image = None;
         }
+
+        // Same with the lightbox
         if self
             .lightbox_image_id()
             .is_some_and(|id| removed_ids.contains(id) || !library.contains_id(id))
@@ -484,6 +518,7 @@ impl Gallery {
             self.lightbox = None;
         }
 
+        // And the queue
         self.queue.retain(|hash| library.contains_content(hash));
         self.thumbs.retain(|hash, _| library.contains_content(hash));
     }
@@ -495,6 +530,8 @@ impl Gallery {
         cx.spawn(async move |this, cx| {
             let mut scanner = state.read_with(cx, |state, _| state.scanner.clone());
 
+            // Run scan in the background
+            // TODO: add notifications/toasts for the scan progress
             let result = cx
                 .background_executor()
                 .spawn(async move {
@@ -505,11 +542,13 @@ impl Gallery {
 
             match result {
                 Ok(scanner) => {
+                    // Assume the scan has results and update the state
                     state.update(cx, |state, cx| {
                         state.scanner = scanner;
                         cx.notify();
                     });
 
+                    // Reload the gallery from the updated state
                     this.update(cx, |gallery, cx| gallery.reload_from_state(cx))
                         .ok();
                 }
@@ -525,11 +564,13 @@ impl Gallery {
     fn reflow(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
         let filtered = self.get_visible_image_ids(&query);
+
         self.filtered_images = filtered;
         self.grouped_view.update(cx, |view, cx| {
             view.rebuild(&self.filtered_images, &self.library);
             cx.notify();
         });
+
         cx.notify();
     }
 
@@ -616,20 +657,7 @@ impl Gallery {
     /// Scroll the active view to a target
     fn scroll_view(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {
         let image_ids = self.filtered_images.clone();
-        match self.settings.view {
-            View::Grid => self.grid_view.update(cx, |view, cx| {
-                view.scroll_to(&image_ids, target);
-                cx.notify();
-            }),
-            View::Grouped => self.grouped_view.update(cx, |view, cx| {
-                view.scroll_to(&image_ids, target);
-                cx.notify();
-            }),
-            View::List => self.list_view.update(cx, |view, cx| {
-                view.scroll_to(&image_ids, target);
-                cx.notify();
-            }),
-        }
+        self.update_current_view(cx, |view| view.scroll_to(&image_ids, target));
     }
 
     /// Show the lightbox with the given image and stop generating thumbnails
@@ -668,23 +696,12 @@ impl Gallery {
 
     /// Select the next image in the given direction
     fn select_adjacent_image(&mut self, direction: view::Direction, cx: &mut Context<Self>) {
-        let next = match self.settings.view {
-            View::Grid => self.grid_view.read(cx).neighbor(
-                &self.filtered_images,
-                self.active_image.as_ref(),
-                direction,
-            ),
-            View::Grouped => self.grouped_view.read(cx).neighbor(
-                &self.filtered_images,
-                self.active_image.as_ref(),
-                direction,
-            ),
-            View::List => self.list_view.read(cx).neighbor(
-                &self.filtered_images,
-                self.active_image.as_ref(),
-                direction,
-            ),
-        };
+        // Get the image from the current view
+        let next = self.current_view(cx).neighbor(
+            &self.filtered_images,
+            self.active_image.as_ref(),
+            direction,
+        );
 
         if let Some(next) = next {
             self.select_single_image(&next, cx);
@@ -857,56 +874,17 @@ impl Gallery {
 
     /// Enlarge thumbnails in the active view
     fn zoom_view_in(&mut self, cx: &mut Context<Self>) {
-        match self.settings.view {
-            View::Grid => self.grid_view.update(cx, |view, cx| {
-                view.zoom_in();
-                cx.notify();
-            }),
-            View::Grouped => self.grouped_view.update(cx, |view, cx| {
-                view.zoom_in();
-                cx.notify();
-            }),
-            View::List => self.list_view.update(cx, |view, cx| {
-                view.zoom_in();
-                cx.notify();
-            }),
-        }
+        self.update_current_view(cx, |view| view.zoom_in());
     }
 
     /// Shrink thumbnails in the active view
     fn zoom_view_out(&mut self, cx: &mut Context<Self>) {
-        match self.settings.view {
-            View::Grid => self.grid_view.update(cx, |view, cx| {
-                view.zoom_out();
-                cx.notify();
-            }),
-            View::Grouped => self.grouped_view.update(cx, |view, cx| {
-                view.zoom_out();
-                cx.notify();
-            }),
-            View::List => self.list_view.update(cx, |view, cx| {
-                view.zoom_out();
-                cx.notify();
-            }),
-        }
+        self.update_current_view(cx, |view| view.zoom_out());
     }
 
     /// Restore the active view's default thumbnail size
     fn reset_view_zoom(&mut self, cx: &mut Context<Self>) {
-        match self.settings.view {
-            View::Grid => self.grid_view.update(cx, |view, cx| {
-                view.zoom_reset();
-                cx.notify();
-            }),
-            View::Grouped => self.grouped_view.update(cx, |view, cx| {
-                view.zoom_reset();
-                cx.notify();
-            }),
-            View::List => self.list_view.update(cx, |view, cx| {
-                view.zoom_reset();
-                cx.notify();
-            }),
-        }
+        self.update_current_view(cx, |view| view.zoom_reset());
     }
 
     /// Position of an image in the bookmark list, if bookmarked

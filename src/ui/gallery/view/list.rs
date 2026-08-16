@@ -1,4 +1,4 @@
-use super::{Direction, GalleryView, ScrollTarget};
+use super::{Direction, GalleryView, GalleryViewEvent, ScrollTarget};
 use crate::{
     core::{hash::hash_path, image::ImageId},
     ui::gallery::{
@@ -7,11 +7,15 @@ use crate::{
     },
 };
 use gpui::{
-    ClickEvent, Context, Render, ScrollStrategy, SharedString, UniformListScrollHandle, WeakEntity,
-    Window, div, prelude::*, px, uniform_list,
+    ClickEvent, Context, EventEmitter, Render, ScrollStrategy, SharedString,
+    UniformListScrollHandle, WeakEntity, Window, div, prelude::*, px, uniform_list,
 };
 use gpui_component::{ActiveTheme, InteractiveElementExt, h_flex, scroll::Scrollbar, v_flex};
 use std::ops::Range;
+
+const DEFAULT_THUMBNAIL_SIZE: f32 = 80.0;
+const MIN_THUMBNAIL_SIZE: f32 = 32.0;
+const THUMBNAIL_ZOOM_STEP: f32 = 16.0;
 
 pub struct ListView {
     gallery: WeakEntity<Gallery>,
@@ -31,7 +35,7 @@ impl ListView {
             gallery,
             scroll_handle: UniformListScrollHandle::new(),
             visible_range: 0..0,
-            thumbnail_size: 80.0,
+            thumbnail_size: DEFAULT_THUMBNAIL_SIZE,
         }
     }
 
@@ -59,7 +63,7 @@ impl Render for ListView {
         let image_count = gallery.read(cx).filtered_images.len();
         let visible = self.visible_range(image_count);
         let image_ids = gallery.read(cx).filtered_images[visible].to_vec();
-        gallery.update(cx, |gallery, cx| gallery.enqueue_thumbnails(&image_ids, cx));
+        cx.emit(GalleryViewEvent::VisibleImagesChanged(image_ids));
 
         let thumbnail_size = self.thumbnail_size;
         let scroll_handle = self.scroll_handle.clone();
@@ -95,8 +99,6 @@ impl Render for ListView {
                             let thumb = super::thumbnail::Thumbnail::render(gallery_state, &id);
                             let click_id = id.clone();
                             let open_id = id.clone();
-                            let click_gallery = gallery.clone();
-                            let open_gallery = gallery.clone();
 
                             items.push(
                                 h_flex()
@@ -111,21 +113,16 @@ impl Render for ListView {
                                     .overflow_hidden()
                                     .border_color(cx.theme().border)
                                     .cursor_pointer()
-                                    .on_click(cx.listener(
-                                        move |_, event: &ClickEvent, window, cx| {
-                                            cx.stop_propagation();
-                                            click_gallery.update(cx, |gallery, cx| {
-                                                gallery.on_thumb_click_event(
-                                                    &click_id, event, window, cx,
-                                                )
-                                            });
-                                        },
-                                    ))
+                                    .on_click(cx.listener(move |_, event: &ClickEvent, _, cx| {
+                                        cx.stop_propagation();
+                                        cx.emit(GalleryViewEvent::SelectImage {
+                                            id: click_id.clone(),
+                                            mode: event.modifiers().into(),
+                                        });
+                                    }))
                                     .on_double_click(cx.listener(move |_, _, _, cx| {
                                         cx.stop_propagation();
-                                        open_gallery.update(cx, |gallery, cx| {
-                                            gallery.open_lightbox(&open_id, cx)
-                                        });
+                                        cx.emit(GalleryViewEvent::OpenImage(open_id.clone()));
                                     }))
                                     .child(
                                         div()
@@ -162,6 +159,8 @@ impl Render for ListView {
     }
 }
 
+impl EventEmitter<GalleryViewEvent> for ListView {}
+
 impl GalleryView for ListView {
     /// Find the adjacent image in the list
     fn neighbor(
@@ -188,9 +187,9 @@ impl GalleryView for ListView {
     }
 
     /// Scroll the list to a target
-    fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) {
+    fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) -> bool {
         if image_ids.is_empty() {
-            return;
+            return false;
         }
 
         let position = match target {
@@ -204,18 +203,34 @@ impl GalleryView for ListView {
 
         if let Some((index, strategy)) = position {
             self.scroll_handle.scroll_to_item(index, strategy);
+            true
+        } else {
+            false
         }
     }
 
     /// Enlarge list thumbnails
     fn zoom_in(&mut self) -> bool {
-        self.thumbnail_size += 16.0;
+        self.thumbnail_size += THUMBNAIL_ZOOM_STEP;
         true
     }
 
     /// Shrink list thumbnails
     fn zoom_out(&mut self) -> bool {
-        self.thumbnail_size = (self.thumbnail_size - 16.0).max(32.0);
+        let size = (self.thumbnail_size - THUMBNAIL_ZOOM_STEP).max(MIN_THUMBNAIL_SIZE);
+        if size == self.thumbnail_size {
+            return false;
+        }
+        self.thumbnail_size = size;
+        true
+    }
+
+    /// Restore the default list thumbnail size
+    fn zoom_reset(&mut self) -> bool {
+        if self.thumbnail_size == DEFAULT_THUMBNAIL_SIZE {
+            return false;
+        }
+        self.thumbnail_size = DEFAULT_THUMBNAIL_SIZE;
         true
     }
 }

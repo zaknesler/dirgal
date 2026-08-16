@@ -10,11 +10,15 @@ use crate::{
         gallery::{
             Gallery,
             constant::{COLOR_ACCENT, COLOR_ACCENT_HOVER, DEBUG},
+            view::GalleryViewEvent,
         },
         model::{Page, ThumbnailFit},
     },
 };
-use gpui::{AnyElement, ClickEvent, Context, Entity, ObjectFit, div, img, prelude::*, px, rems};
+use gpui::{
+    AnyElement, ClickEvent, Context, Entity, EventEmitter, ObjectFit, div, img, prelude::*, px,
+    rems,
+};
 use gpui_component::{
     ActiveTheme, InteractiveElementExt, Sizable as _, menu::ContextMenuExt, skeleton::Skeleton,
     spinner::Spinner, v_flex,
@@ -63,7 +67,7 @@ pub struct ImageTile;
 
 impl ImageTile {
     /// Render an interactive image tile
-    pub fn render<V: 'static>(
+    pub fn render<V: EventEmitter<GalleryViewEvent>>(
         gallery: &Entity<Gallery>,
         id: &ImageId,
         tile_size: f32,
@@ -86,8 +90,6 @@ impl ImageTile {
 
         let click_id = id.clone();
         let open_id = id.clone();
-        let click_gallery = gallery.clone();
-        let open_gallery = gallery.clone();
 
         div()
             .key_context(crate::ui::CONTEXT_GALLERY)
@@ -108,15 +110,16 @@ impl ImageTile {
             })
             .when(is_selected, |el| el.border_color(gpui::rgb(COLOR_ACCENT)))
             .cursor_pointer()
-            .on_click(cx.listener(move |_, event: &ClickEvent, window, cx| {
+            .on_click(cx.listener(move |_, event: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                click_gallery.update(cx, |gallery, cx| {
-                    gallery.on_thumb_click_event(&click_id, event, window, cx)
+                cx.emit(GalleryViewEvent::SelectImage {
+                    id: click_id.clone(),
+                    mode: event.modifiers().into(),
                 });
             }))
             .on_double_click(cx.listener(move |_, _, _, cx| {
                 cx.stop_propagation();
-                open_gallery.update(cx, |gallery, cx| gallery.open_lightbox(&open_id, cx));
+                cx.emit(GalleryViewEvent::OpenImage(open_id.clone()));
             }))
             .context_menu(move |menu, _, _| {
                 Self::context_menu(menu, content_hash, is_bookmarked, page, &src_path)

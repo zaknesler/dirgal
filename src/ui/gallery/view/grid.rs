@@ -1,4 +1,4 @@
-use super::{Direction, GalleryView, ScrollTarget};
+use super::{Direction, GalleryView, GalleryViewEvent, ScrollTarget};
 use crate::{
     core::image::ImageId,
     ui::gallery::{
@@ -9,8 +9,8 @@ use crate::{
     },
 };
 use gpui::{
-    Context, Pixels, Render, ScrollStrategy, UniformListScrollHandle, WeakEntity, Window, div,
-    prelude::*, px, uniform_list,
+    Context, EventEmitter, Pixels, Render, ScrollStrategy, UniformListScrollHandle, WeakEntity,
+    Window, div, prelude::*, px, uniform_list,
 };
 use gpui_component::{h_flex, scroll::Scrollbar};
 use std::ops::Range;
@@ -91,7 +91,7 @@ impl Render for GridView {
         let image_count = gallery.read(cx).filtered_images.len();
         let visible = self.visible_image_range(image_count);
         let image_ids = gallery.read(cx).filtered_images[visible].to_vec();
-        gallery.update(cx, |gallery, cx| gallery.enqueue_thumbnails(&image_ids, cx));
+        cx.emit(GalleryViewEvent::VisibleImagesChanged(image_ids));
 
         let row_count = self.row_count(image_count);
         let tile_size = self.tile_size;
@@ -153,6 +153,8 @@ impl Render for GridView {
     }
 }
 
+impl EventEmitter<GalleryViewEvent> for GridView {}
+
 impl GalleryView for GridView {
     /// Find the adjacent image in the grid
     fn neighbor(
@@ -181,9 +183,9 @@ impl GalleryView for GridView {
     }
 
     /// Scroll the grid to a target
-    fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) {
+    fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) -> bool {
         if image_ids.is_empty() {
-            return;
+            return false;
         }
 
         let position = match target {
@@ -199,26 +201,34 @@ impl GalleryView for GridView {
 
         if let Some((index, strategy)) = position {
             self.scroll_handle.scroll_to_item(index, strategy);
+            true
+        } else {
+            false
         }
     }
 
     /// Enlarge tiles by removing a column
     fn zoom_in(&mut self) -> bool {
         let current = self.column_override.unwrap_or(self.columns);
-        self.column_override = Some(current.saturating_sub(1).max(MIN_COLS));
+        if current <= MIN_COLS {
+            return false;
+        }
+        self.column_override = Some(current - 1);
         true
     }
 
     /// Shrink tiles by adding a column
     fn zoom_out(&mut self) -> bool {
         let current = self.column_override.unwrap_or(self.columns);
-        self.column_override = Some((current + 1).min(MAX_COLS));
+        if current >= MAX_COLS {
+            return false;
+        }
+        self.column_override = Some(current + 1);
         true
     }
 
     /// Restore automatic column sizing
     fn zoom_reset(&mut self) -> bool {
-        self.column_override = None;
-        true
+        self.column_override.take().is_some()
     }
 }
