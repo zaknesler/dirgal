@@ -4,6 +4,7 @@ use crate::ui::model::{Sort, SortKey};
 use gpui::Img;
 use humansize::{BINARY, FormatSizeOptions, format_size};
 use ignore::WalkBuilder;
+use std::collections::HashMap;
 use std::{
     cmp::Ordering,
     collections::HashSet,
@@ -208,21 +209,30 @@ pub fn deduplicate_and_sort(
     images: Vec<ImageEntry>,
     sort: Sort,
 ) -> (Vec<ImageEntry>, Vec<ImageEntry>) {
-    let mut seen = HashSet::new();
-    let mut unique = Vec::new();
-    let mut duplicates = Vec::new();
+    // Prefill groups with
+    let mut groups: HashMap<ContentHash, Vec<ImageEntry>> = HashMap::new();
+    for image in images {
+        groups.entry(image.content_hash).or_default().push(image);
+    }
 
-    // Reverse the list to retain the last image, so that a duplicate image in
-    // a nested directory is kept rather than the one in the parent directory.
-    for image in images.iter().rev() {
-        if seen.insert(image.content_hash) {
-            unique.push(image.to_owned());
-        } else {
-            duplicates.push(image.to_owned());
+    let mut unique: Vec<ImageEntry> = Vec::new();
+    let mut duplicate_groups: Vec<Vec<ImageEntry>> = Vec::new();
+
+    for mut group in groups.into_values() {
+        unique.push(group.last().unwrap().clone());
+
+        // Keep duplicate images sorted next to each other
+        if group.len() > 1 {
+            group.sort_by(|a, b| compare_key(a, b, sort));
+            duplicate_groups.push(group);
         }
     }
 
     unique.sort_by(|a, b| compare_key(a, b, sort));
+    duplicate_groups.sort_by(|a, b| compare_key(&a[0], &b[0], sort));
+
+    let duplicates = duplicate_groups.into_iter().flatten().collect();
+
     (unique, duplicates)
 }
 

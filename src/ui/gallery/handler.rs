@@ -1,4 +1,8 @@
-use crate::ui::{model::*, *};
+use crate::ui::{
+    gallery::view::{Direction, GalleryViewEvent, GroupHash, ScrollTarget, SelectionMode},
+    model::*,
+    *,
+};
 use crate::{
     core::{
         hash::hash_path,
@@ -7,7 +11,7 @@ use crate::{
     },
     ui::gallery::Gallery,
 };
-use gpui::{ClickEvent, Context, Entity, ListOffset, Window, px};
+use gpui::{Context, Entity, Window};
 use gpui_component::WindowExt;
 use gpui_component::{
     input::{InputEvent, InputState},
@@ -37,7 +41,6 @@ impl Gallery {
         self.set_sort(sort, window, cx);
     }
 
-    /// Refresh the library
     pub fn on_refresh(
         &mut self,
         _: &actions::Refresh,
@@ -88,42 +91,42 @@ impl Gallery {
         };
     }
 
-    pub fn on_thumb_click_event(
-        &mut self,
-        id: &ImageId,
-        event: &ClickEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if event.modifiers().secondary() && self.selected_images.contains(id) {
-            self.remove_image_from_selection(id, cx);
-        } else if event.modifiers().secondary() {
-            self.add_image_to_selection(id, cx);
-        } else if event.modifiers().shift {
-            self.add_images_until_selection(id, cx);
-        } else {
-            self.select_single_image(id, cx);
+    /// Handle an interaction emitted by a gallery view
+    pub fn on_view_event(&mut self, event: &GalleryViewEvent, cx: &mut Context<Self>) {
+        match event {
+            GalleryViewEvent::SelectImage { id, mode } => match mode {
+                SelectionMode::Toggle if self.selected_images.contains(id) => {
+                    self.remove_image_from_selection(id, cx);
+                }
+                SelectionMode::Toggle => {
+                    self.add_image_to_selection(id, cx);
+                }
+                SelectionMode::Extend => {
+                    self.add_images_until_selection(id, cx);
+                }
+                SelectionMode::Replace => self.select_single_image(id, cx),
+            },
+            GalleryViewEvent::OpenImage(id) => self.open_lightbox(id, cx),
+            GalleryViewEvent::VisibleImagesChanged(ids) => {
+                self.update_visible_thumbnails(ids, cx);
+            }
         }
-
-        cx.notify();
     }
 
-    pub fn on_up(&mut self, _: &actions::Up, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn on_up(&mut self, _: &actions::Up, _: &mut Window, cx: &mut Context<Self>) {
         if self.lightbox.is_some() {
             return;
         }
 
-        let (num_columns, _) = self.get_grid_layout(window);
-        self.select_step(-(num_columns as isize), cx);
+        self.select_adjacent_image(Direction::Up, cx);
     }
 
-    pub fn on_down(&mut self, _: &actions::Down, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn on_down(&mut self, _: &actions::Down, _: &mut Window, cx: &mut Context<Self>) {
         if self.lightbox.is_some() {
             return;
         }
 
-        let (num_columns, _) = self.get_grid_layout(window);
-        self.select_step(num_columns as isize, cx);
+        self.select_adjacent_image(Direction::Down, cx);
     }
 
     pub fn on_left(&mut self, _: &actions::Left, _: &mut Window, cx: &mut Context<Self>) {
@@ -132,9 +135,7 @@ impl Gallery {
             return;
         }
 
-        if self.selected_images.len() == 1 {
-            self.select_step(-1, cx);
-        }
+        self.select_adjacent_image(Direction::Left, cx);
     }
 
     pub fn on_right(&mut self, _: &actions::Right, _: &mut Window, cx: &mut Context<Self>) {
@@ -143,9 +144,7 @@ impl Gallery {
             return;
         }
 
-        if self.selected_images.len() == 1 {
-            self.select_step(1, cx);
-        }
+        self.select_adjacent_image(Direction::Right, cx);
     }
 
     pub fn on_open_lightbox(
@@ -166,23 +165,13 @@ impl Gallery {
             return;
         }
 
-        // Otherwise find the first image (if grouped, use the image from the first opened group)
-        let first = if self.settings.view == View::Grouped {
-            self.groups
-                .iter()
-                .find(|g| !self.collapsed_groups.contains(&g.hash))
-                .and_then(|g| g.image_ids.first())
-                .cloned()
-        } else {
-            self.filtered_images.first().cloned()
-        };
+        let first = self.current_view(cx).first_image(&self.filtered_images);
 
         if let Some(id) = first {
             self.open_lightbox(&id, cx);
         }
     }
 
-    /// Toggle directory grouping
     pub fn on_togle_view(
         &mut self,
         _: &actions::ToggleView,
@@ -192,7 +181,6 @@ impl Gallery {
         self.toggle_view(window, cx);
     }
 
-    /// Toggle thumbnail fit
     pub fn on_toggle_thumbnail_fit(
         &mut self,
         _: &actions::ToggleThumbnailFit,
@@ -227,7 +215,7 @@ impl Gallery {
             return;
         }
 
-        self.zoom_grid_in(cx);
+        self.zoom_view_in(cx);
     }
 
     pub fn on_zoom_out(&mut self, _: &actions::ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
@@ -237,7 +225,7 @@ impl Gallery {
             return;
         }
 
-        self.zoom_grid_out(cx);
+        self.zoom_view_out(cx);
     }
 
     pub fn on_zoom_reset(
@@ -251,16 +239,13 @@ impl Gallery {
             return;
         }
 
-        self.column_override = None;
-        cx.notify();
+        self.reset_view_zoom(cx);
     }
 
-    /// Fill the lightbox area with the open image
     pub fn on_zoom_fill(&mut self, _: &actions::ZoomFill, _: &mut Window, cx: &mut Context<Self>) {
         self.zoom_lightbox_fill(cx);
     }
 
-    /// Copy the full path to the clipboard
     pub fn on_copy_path_to_clipboard(
         &mut self,
         action: &actions::CopyPathToClipboard,
@@ -281,12 +266,10 @@ impl Gallery {
         }
     }
 
-    /// Copy the file(s) at the given path(s)
     pub fn on_copy_image(&mut self, _: &actions::CopyImage, _: &mut Window, _: &mut Context<Self>) {
         unimplemented!()
     }
 
-    /// Trash the file(s) at the given path(s)
     pub fn on_trash_file(
         &mut self,
         action: &actions::TrashFile,
@@ -303,7 +286,6 @@ impl Gallery {
         }
     }
 
-    /// Permanently delete the file(s) at the given path(s)
     pub fn on_delete_file(
         &mut self,
         action: &actions::DeleteFile,
@@ -417,7 +399,9 @@ impl Gallery {
                 .parent()
                 .unwrap_or(Path::new(""))
                 .to_path_buf();
-            self.collapsed_groups.remove(&GroupHash(hash_path(&parent)));
+            self.grouped_view.update(cx, |view, _| {
+                view.expand_group(GroupHash(hash_path(&parent)))
+            });
         }
 
         self.page = Page::Gallery;
@@ -425,12 +409,11 @@ impl Gallery {
         self.select_single_image(&id, cx);
         self.reflow(cx);
 
-        self.scroll_to_image(&id);
+        self.scroll_to_image(&id, cx);
 
         cx.notify();
     }
 
-    /// Move keyboard focus to the search input
     pub fn on_focus_search(
         &mut self,
         _: &actions::FocusSearch,
@@ -440,29 +423,22 @@ impl Gallery {
         self.input_focus_handle.focus(window, cx);
     }
 
-    /// Jump the grid scroll position to the very top
     pub fn on_jump_to_top(
         &mut self,
         _: &actions::JumpToTop,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.grid.scroll_to(ListOffset {
-            item_ix: 0,
-            offset_in_item: px(0.),
-        });
-        cx.notify();
+        self.scroll_view(ScrollTarget::Start, cx);
     }
 
-    /// Jump the grid scroll position to the very bottom
     pub fn on_jump_to_bottom(
         &mut self,
         _: &actions::JumpToBottom,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.grid.scroll_to_end();
-        cx.notify();
+        self.scroll_view(ScrollTarget::End, cx);
     }
 
     /// Cycle to the previous page, wrapping around
@@ -490,16 +466,6 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings.view != View::Grouped {
-            return;
-        }
-
-        if self.collapsed_groups.len() == self.groups.len() {
-            self.collapsed_groups.clear();
-        } else {
-            self.collapsed_groups = self.groups.iter().map(|g| g.hash).collect();
-        }
-
-        self.reflow(cx);
+        self.update_current_view(cx, |view| view.toggle_groups());
     }
 }

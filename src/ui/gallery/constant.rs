@@ -3,6 +3,8 @@ pub const DEBUG: bool = false;
 pub const MIN_COLS: usize = 1;
 pub const MAX_COLS: usize = 20;
 
+/// Height of the headers in the grouped view
+pub const GRID_HEADER_HEIGHT: f32 = 48.0;
 /// Minimum tile width in pixels before adding another column
 pub const GRID_TILE_MIN: f32 = 200.0;
 /// Spacing between tiles in pixels

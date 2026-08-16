@@ -7,6 +7,7 @@ use crate::core::{
     path::label_for,
     util,
 };
+use crate::ui::actions;
 use crate::ui::gallery::Gallery;
 use crate::ui::{gallery::constant::*, model::*};
 use gpui::{
@@ -372,7 +373,13 @@ impl Gallery {
                 .on_scroll_wheel(cx.listener(Self::on_image_scroll_wheel))
                 .on_pinch(cx.listener(Self::on_image_pinch))
                 .context_menu(move |menu, _, _| {
-                    Self::image_context_menu(menu, content_hash, is_bookmarked, page, &src_path)
+                    super::view::thumbnail::ImageTile::context_menu(
+                        menu,
+                        content_hash,
+                        is_bookmarked,
+                        page,
+                        &src_path,
+                    )
                 })
                 .child(
                     canvas(
@@ -470,6 +477,7 @@ impl Gallery {
         let is_bookmarked = self.get_bookmark_index(&entry.content_hash).is_some();
         let content_hash = entry.content_hash;
         let path = entry.id.to_path_buf();
+        let trash_path = path.clone();
         let actions = || {
             h_flex()
                 .flex_none()
@@ -494,6 +502,20 @@ impl Gallery {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
                             this.toggle_bookmark(&content_hash, cx);
+                        })),
+                )
+                .child(
+                    Button::new("trash")
+                        .ghost()
+                        .icon(IconAsset::Trash)
+                        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+
+                            if event.modifiers().secondary() {
+                                this.on_delete_file(&actions::DeleteFile::Current, window, cx);
+                            } else {
+                                this.delete_files(&[trash_path.to_owned()], cx);
+                            }
                         })),
                 )
         };
