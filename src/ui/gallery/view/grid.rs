@@ -131,6 +131,7 @@ impl Render for GridView {
                                 h_flex()
                                     .w_full()
                                     .gap(px(GRID_GAP))
+                                    .pb(px(GRID_GAP))
                                     .px(px(GRID_OUTER_MARGIN))
                                     .children(image_ids.iter().map(|id| {
                                         super::thumbnail::ImageTile::render(

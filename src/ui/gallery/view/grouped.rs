@@ -9,26 +9,31 @@ use crate::{
     },
     ui::gallery::{
         Gallery,
-        constant::{GRID_GAP, GRID_OUTER_MARGIN, GRID_OVERDRAW, GRID_TILE_MIN, MAX_COLS, MIN_COLS},
+        constant::{
+            GRID_GAP, GRID_HEADER_HEIGHT, GRID_OUTER_MARGIN, GRID_OVERDRAW, GRID_TILE_MIN,
+            MAX_COLS, MIN_COLS,
+        },
         library::Library,
     },
 };
 use gpui::{
     AnyElement, Context, Entity, EventEmitter, ListAlignment, ListOffset, ListState, Pixels,
-    Render, WeakEntity, Window, div, list, prelude::*, px,
+    Render, WeakEntity, Window, div, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, Sizable as _,
+    ActiveTheme, Sizable as _, VirtualListScrollHandle,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _},
     h_flex,
-    scroll::Scrollbar,
+    scroll::{ScrollableElement, ScrollbarAxis},
     tag::Tag,
+    v_virtual_list,
 };
 use std::{
     collections::HashSet,
     ops::Range,
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -66,6 +71,9 @@ pub struct GroupedView {
     tile_size: f32,
     columns: usize,
     column_override: Option<usize>,
+
+    scroll_handle: VirtualListScrollHandle,
+    visible_rows: Range<usize>,
 }
 
 impl GroupedView {
@@ -85,6 +93,8 @@ impl GroupedView {
             tile_size: GRID_TILE_MIN,
             columns: 1,
             column_override: None,
+            scroll_handle: VirtualListScrollHandle::new(),
+            visible_rows: 0..0,
         }
     }
 
@@ -278,8 +288,8 @@ impl GroupedView {
         };
 
         match row {
-            Row::Header(group_hash) => self.render_header(&gallery, group_hash, index, cx),
-            Row::Tiles(range) => self.render_tiles(&gallery, range, index, cx),
+            Row::Header(group_hash) => self.render_header(&gallery, group_hash, cx),
+            Row::Tiles(range) => self.render_tiles(&gallery, range, cx),
         }
     }
 
@@ -288,10 +298,8 @@ impl GroupedView {
         &self,
         gallery: &Entity<Gallery>,
         group_hash: GroupHash,
-        index: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let is_last_row = index == self.rows.len() - 1;
         let group = self.group(group_hash).expect("group should exist");
         let segments = group_segments(&gallery.read(cx).library.roots, &group.path);
         let count = group.range.len();
@@ -302,11 +310,8 @@ impl GroupedView {
             .w_full()
             .items_center()
             .gap_2()
+            .h(px(GRID_HEADER_HEIGHT))
             .px(px(GRID_OUTER_MARGIN))
-            .pt(px(GRID_OUTER_MARGIN))
-            .when(!is_collapsed || is_last_row, |el| {
-                el.pb(px(GRID_OUTER_MARGIN))
-            })
             .cursor_pointer()
             .group("header")
             .on_click(cx.listener(move |view, _, _, cx| {
@@ -351,11 +356,8 @@ impl GroupedView {
         &self,
         gallery: &Entity<Gallery>,
         range: Range<usize>,
-        index: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let is_only_row = index == 0;
-        let is_last_row = index == self.rows.len() - 1;
         let gallery_state = gallery.read(cx);
         let image_ids = self
             .image_indices(range)
@@ -365,14 +367,9 @@ impl GroupedView {
 
         h_flex()
             .w_full()
-            .px(px(GRID_OUTER_MARGIN))
             .gap(px(GRID_GAP))
-            .when(is_only_row, |el| el.pt(px(GRID_OUTER_MARGIN)))
-            .when_else(
-                is_last_row,
-                |el| el.pb(px(GRID_OUTER_MARGIN)),
-                |el| el.pb(px(GRID_GAP)),
-            )
+            .py(px(GRID_GAP))
+            .px(px(GRID_OUTER_MARGIN))
             .children(
                 image_ids
                     .iter()
@@ -386,6 +383,7 @@ impl Render for GroupedView {
     /// Render the virtualized grouped grid
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_layout(window.viewport_size().width);
+
         if let Some(gallery) = self.gallery.upgrade() {
             let visible = self.visible_image_indices(window.viewport_size().height.as_f32());
             let image_ids = visible
@@ -394,6 +392,18 @@ impl Render for GroupedView {
                 .collect::<Vec<_>>();
             cx.emit(GalleryViewEvent::VisibleImagesChanged(image_ids));
         }
+
+        let sizes = self
+            .rows
+            .iter()
+            .map(|row| match row {
+                Row::Header(_) => gpui::Size::new(px(48.), px(48.)),
+                Row::Tiles(_) => {
+                    let size = self.tile_size + GRID_GAP;
+                    gpui::size(px(size), px(size))
+                }
+            })
+            .collect::<Vec<_>>();
 
         div()
             .image_cache(crate::ui::cache::simple_lru_cache(
@@ -404,18 +414,24 @@ impl Render for GroupedView {
             .min_h_0()
             .relative()
             .child(
-                list(
-                    self.list_state.clone(),
-                    cx.processor(|view, index, _, cx| view.render_row(index, cx)),
+                v_virtual_list(
+                    cx.entity().clone(),
+                    "grouped-list",
+                    Rc::new(sizes),
+                    |view, visible_range, _, cx| {
+                        let mut rows = Vec::new();
+
+                        for index in visible_range {
+                            rows.push(view.render_row(index, cx));
+                        }
+
+                        rows
+                    },
                 )
+                .track_scroll(&self.scroll_handle)
                 .size_full(),
             )
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .child(Scrollbar::vertical(&self.list_state)),
-            )
+            .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
     }
 }
 
