@@ -193,18 +193,24 @@ impl GroupedView {
         self.rebuild_rows();
     }
 
-    /// Return filtered image indices near the viewport
-    fn visible_image_indices(&self, viewport_height: f32) -> Vec<usize> {
+    /// Record the rows requested by the virtualized list
+    fn set_visible_rows(&mut self, rows: Range<usize>) -> bool {
+        if self.visible_rows == rows {
+            return false;
+        }
+
+        self.visible_rows = rows;
+        true
+    }
+
+    /// Return filtered image indices requested by the virtualized list
+    fn visible_image_indices(&self) -> Vec<usize> {
         if self.rows.is_empty() {
             return Vec::new();
         }
 
-        let row_height = self.tile_size + GRID_GAP;
-        let count = ((viewport_height + 2.0 * GRID_OVERDRAW) / row_height).ceil() as usize + 1;
-        let len = self.rows.len();
-        let anchor = self.list_state.logical_scroll_top().item_ix.min(len);
-        let start = anchor.min(len.saturating_sub(count));
-        let end = (start + count).min(len);
+        let start = self.visible_rows.start.min(self.rows.len());
+        let end = self.visible_rows.end.min(self.rows.len());
 
         self.rows[start..end]
             .iter()
@@ -385,7 +391,7 @@ impl Render for GroupedView {
         self.update_layout(window.viewport_size().width);
 
         if let Some(gallery) = self.gallery.upgrade() {
-            let visible = self.visible_image_indices(window.viewport_size().height.as_f32());
+            let visible = self.visible_image_indices();
             let image_ids = visible
                 .into_iter()
                 .filter_map(|index| gallery.read(cx).filtered_images.get(index).cloned())
@@ -419,6 +425,10 @@ impl Render for GroupedView {
                     "grouped-list",
                     Rc::new(sizes),
                     |view, visible_range, _, cx| {
+                        if view.set_visible_rows(visible_range.clone()) {
+                            cx.notify();
+                        }
+
                         let mut rows = Vec::new();
 
                         for index in visible_range {
