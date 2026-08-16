@@ -296,7 +296,17 @@ impl Gallery {
         }
 
         let query = query.to_lowercase();
-        let keywords: HashSet<&str> = query.split_whitespace().collect();
+
+        let all_keywords: HashSet<&str> = query.split_whitespace().collect();
+        let mut keywords_pos: HashSet<&str> = HashSet::new();
+        let mut keywords_neg: HashSet<&str> = HashSet::new();
+        for k in all_keywords {
+            if k.starts_with('-') && k.len() > 1 {
+                keywords_neg.insert(k.trim_start_matches('-'));
+            } else if !k.starts_with('-') {
+                keywords_pos.insert(k);
+            }
+        }
 
         let mut matches: Vec<ImageId> = Vec::new();
 
@@ -304,8 +314,10 @@ impl Gallery {
             if let Some(image) = self.get_image_entry(&id) {
                 let path = image.id.path().to_string_lossy().to_lowercase();
 
-                // Must contain all keywords
-                if keywords.iter().all(|k| path.contains(k)) {
+                let pos_ok = keywords_pos.iter().all(|k| path.contains(k));
+                let neg_ok = !keywords_neg.iter().any(|k| path.contains(k));
+
+                if pos_ok && neg_ok {
                     matches.push(id);
                 }
             }
