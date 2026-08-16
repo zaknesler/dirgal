@@ -69,6 +69,7 @@ impl GridView {
         if self.visible_rows == rows {
             return false;
         }
+
         self.visible_rows = rows;
         true
     }
@@ -113,12 +114,15 @@ impl Render for GridView {
                         let Some(gallery) = view.gallery.upgrade() else {
                             return Vec::new();
                         };
+
+                        // Keep track of which rows are visible (mainly for thumbnail queue)
                         if view.set_visible_rows(range.clone()) {
                             cx.notify();
                         }
-                        let image_count = gallery.read(cx).filtered_images.len();
-                        let mut rows = Vec::new();
 
+                        let image_count = gallery.read(cx).filtered_images.len();
+
+                        let mut rows = Vec::new();
                         for row in range {
                             let range = view.row_range(row, image_count);
                             let image_ids = gallery.read(cx).filtered_images[range].to_vec();
@@ -128,7 +132,6 @@ impl Render for GridView {
                                     .w_full()
                                     .gap(px(GRID_GAP))
                                     .px(px(GRID_OUTER_MARGIN))
-                                    .pb(px(GRID_GAP))
                                     .children(image_ids.iter().map(|id| {
                                         super::thumbnail::ImageTile::render(
                                             &gallery, id, tile_size, cx,

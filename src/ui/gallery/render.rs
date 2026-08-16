@@ -283,20 +283,20 @@ impl Gallery {
                                             cx,
                                         );
                                     })),
+                            )
+                            .child(
+                                Button::new("bulk-delete")
+                                    .ghost()
+                                    .icon(IconAsset::CircleX)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        cx.stop_propagation();
+                                        this.on_delete_file(
+                                            &actions::DeleteFile::Current,
+                                            window,
+                                            cx,
+                                        );
+                                    })),
                             ),
-                        // .child(
-                        //     Button::new("bulk-delete")
-                        //         .ghost()
-                        //         .icon(IconAsset::Trash)
-                        //         .on_click(cx.listener(|this, _, window, cx| {
-                        //             cx.stop_propagation();
-                        //             this.on_delete_file(
-                        //                 &actions::DeleteFile::Current,
-                        //                 window,
-                        //                 cx,
-                        //             );
-                        //         })),
-                        // ),
                     ),
             )
     }
