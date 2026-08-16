@@ -1,302 +1,17 @@
-use crate::ui::{
-    gallery::{Gallery, constant::*},
-    model::*,
-    *,
-};
-use crate::{
-    assets::IconAsset,
-    core::{
-        hash::hash_path,
-        image::{ContentHash, ImageId},
-        path::group_segments,
-        util::{self, file_manager_label},
-    },
-};
-use gpui::{
-    AnyElement, App, Context, FocusHandle, Focusable, ObjectFit, SharedString, Window, div, img,
-    list, prelude::*, px, rems, uniform_list,
-};
+use crate::ui::{gallery::Gallery, model::*, *};
+use crate::{assets::IconAsset, core::util};
+use gpui::{App, Context, FocusHandle, Focusable, Window, div, prelude::*, px};
 use gpui_component::{
-    ActiveTheme, Icon, InteractiveElementExt, Root, Sizable as _,
-    breadcrumb::Breadcrumb,
+    ActiveTheme, Icon, Root,
     button::{Button, ButtonVariants as _, Toggle, ToggleGroup, ToggleVariants},
     h_flex,
     input::Input,
-    menu::ContextMenuExt,
-    scroll::Scrollbar,
     select::Select,
-    skeleton::Skeleton,
-    spinner::Spinner,
     tab::{Tab, TabBar},
-    tag::Tag,
     v_flex,
 };
-use std::path::Path;
 
 impl Gallery {
-    /// Render a single list row, either a group header or a row of tiles
-    fn render_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(row) = self.rows.get(index).cloned() else {
-            return div().into_any_element();
-        };
-
-        match row {
-            Row::Header(group_hash) => self.render_header_row(group_hash, index, cx),
-            Row::Tiles(range) => self.render_tile_row(range, index, cx),
-        }
-    }
-
-    /// Render a collapsible group header with breadcrumb path and image count
-    fn render_header_row(
-        &mut self,
-        group_hash: GroupHash,
-        index: usize,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let is_last_row = index == self.rows.len() - 1;
-
-        let group = self
-            .groups
-            .iter()
-            .find(|g| g.hash == group_hash)
-            .expect("group should exist");
-        let segments = group_segments(&self.library.roots, &group.path);
-        let count = group.image_ids.len();
-        let is_collapsed = self.collapsed_groups.contains(&group_hash);
-
-        h_flex()
-            .id(("header", group_hash.0))
-            .w_full()
-            .items_center()
-            .gap_2()
-            .px(px(GRID_OUTER_MARGIN))
-            .pt(px(GRID_OUTER_MARGIN))
-            .when(!is_collapsed || is_last_row, |el| {
-                el.pb(px(GRID_OUTER_MARGIN))
-            })
-            .cursor_pointer()
-            .group("header")
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(&group_hash, cx)))
-            .child(
-                Button::new(("chevron", group_hash.0))
-                    .ghost()
-                    .small()
-                    .icon(if is_collapsed {
-                        IconAsset::ChevronRight
-                    } else {
-                        IconAsset::ChevronDown
-                    })
-                    .text_color(cx.theme().muted_foreground)
-                    .group_hover("header", |el| el.text_color(cx.theme().foreground))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.toggle_group(&group_hash, cx);
-                    })),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .flex_none()
-                    .text_sm()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(Breadcrumb::new().children(segments)),
-            )
-            .child(
-                Tag::new()
-                    .small()
-                    .child(util::format_num(count).to_string()),
-            )
-            .into_any_element()
-    }
-
-    /// Render one row of thumbnail tiles for a slice of the filtered images
-    fn render_tile_row(
-        &mut self,
-        range: std::ops::Range<usize>,
-        index: usize,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let is_only_row = index == 0;
-        let is_last_row = index == self.rows.len() - 1;
-
-        let image_ids = self.filtered_images[range].to_vec();
-
-        h_flex()
-            .w_full()
-            .px(px(GRID_OUTER_MARGIN))
-            .gap(px(GRID_GAP))
-            .when(is_only_row, |el| el.pt(px(GRID_OUTER_MARGIN)))
-            .when_else(
-                is_last_row,
-                |el| el.pb(px(GRID_OUTER_MARGIN)),
-                |el| el.pb(px(GRID_GAP)),
-            )
-            .children(image_ids.into_iter().map(|ref id| self.render_tile(id, cx)))
-            .into_any_element()
-    }
-
-    fn render_thumb(&self, id: &ImageId, _: &mut Context<Self>) -> AnyElement {
-        let source = self.peek_thumb_path(id);
-
-        let object_fit = match self.settings.thumbnail_fit {
-            ThumbnailFit::Cover => ObjectFit::Cover,
-            ThumbnailFit::Contain => ObjectFit::Contain,
-        };
-
-        match source {
-            Some(path) => img(path)
-                .aspect_square()
-                .size_full()
-                .object_fit(object_fit)
-                .into_any_element(),
-            None => Self::render_thumb_placeholder().into_any_element(),
-        }
-    }
-
-    /// Render a clickable tile with context menu and loading placeholder
-    fn render_tile(&mut self, id: &ImageId, cx: &mut Context<Self>) -> AnyElement {
-        let size = px(self.tile_size);
-        let entry = self.get_image_entry(id).expect("image should exist");
-        let content_hash = entry.content_hash;
-        let is_bookmarked = self.library.bookmarks.contains(&content_hash);
-        let is_selected = self.selected_images.contains(id);
-        let page = self.page;
-
-        let src_path = entry.id.to_path_buf();
-        let path_str = src_path.to_string_lossy().to_string();
-        let tile_id = hash_path(id.path()) as usize;
-
-        let click_id = id.clone();
-        let open_id = id.clone();
-
-        div()
-            .key_context(super::CONTEXT_GALLERY)
-            .id(tile_id)
-            .flex_none()
-            .size(size)
-            .overflow_hidden()
-            .aspect_square()
-            .relative()
-            .border_3()
-            .border_color(gpui::transparent_black())
-            .hover(|el| {
-                if is_selected {
-                    el.border_color(gpui::rgb(COLOR_ACCENT_HOVER))
-                } else {
-                    el.border_color(gpui::white())
-                }
-            })
-            .when(is_selected, |el| el.border_color(gpui::rgb(COLOR_ACCENT)))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, event, window, cx| {
-                cx.stop_propagation();
-                Self::on_thumb_click_event(this, &click_id, event, window, cx);
-            }))
-            .on_double_click(cx.listener(move |this, _, _, cx| {
-                cx.stop_propagation();
-                this.open_lightbox(&open_id, cx)
-            }))
-            .context_menu(move |menu, _, _| {
-                Self::image_context_menu(menu, content_hash, is_bookmarked, page, &src_path)
-            })
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .aspect_square()
-                    .child(self.render_thumb(id, cx)),
-            )
-            .when(DEBUG, |el| {
-                el.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .p_1p5()
-                        .text_xs()
-                        .line_height(rems(1.1))
-                        .bg(cx.theme().background)
-                        .text_color(cx.theme().foreground)
-                        .child(path_str),
-                )
-            })
-            .into_any_element()
-    }
-
-    /// Build the right-click menu for an image in the grid or lightbox
-    pub(super) fn image_context_menu(
-        menu: gpui_component::menu::PopupMenu,
-        content_hash: ContentHash,
-        is_bookmarked: bool,
-        page: Page,
-        src_path: &Path,
-    ) -> gpui_component::menu::PopupMenu {
-        menu.menu_with_icon_and_disabled(
-            "Copy",
-            IconAsset::ClipboardCopy,
-            Box::new(actions::CopyImage::Path(src_path.to_path_buf())),
-            true,
-        )
-        .menu_with_icon(
-            "Trash",
-            IconAsset::Trash,
-            Box::new(actions::TrashFile::Path(src_path.to_path_buf())),
-        )
-        .menu_with_icon(
-            "Delete",
-            IconAsset::CircleX,
-            Box::new(actions::DeleteFile::Path(src_path.to_path_buf())),
-        )
-        .separator()
-        .menu_with_icon(
-            if is_bookmarked {
-                "Unbookmark"
-            } else {
-                "Bookmark"
-            },
-            if is_bookmarked {
-                IconAsset::BookmarkOff
-            } else {
-                IconAsset::Bookmark
-            },
-            Box::new(actions::Bookmark::Hash(content_hash)),
-        )
-        .menu_with_icon(
-            "Copy full path",
-            IconAsset::NotepadText,
-            Box::new(actions::CopyPathToClipboard::Path(src_path.to_path_buf())),
-        )
-        .separator()
-        .when(page != Page::Gallery, |menu| {
-            menu.menu_with_icon(
-                "Reveal in gallery",
-                IconAsset::Grid,
-                Box::new(actions::RevealInGallery(content_hash)),
-            )
-        })
-        .menu_with_icon(
-            format!("Open in {}", file_manager_label().to_lowercase()),
-            IconAsset::FolderOpen,
-            Box::new(actions::OpenInFinder::Path(src_path.to_path_buf())),
-        )
-    }
-
-    /// Skeleton with a spinner shown while a thumbnail loads
-    fn render_thumb_placeholder() -> impl IntoElement {
-        div()
-            .size_full()
-            .child(Skeleton::new().secondary().w_full().h_full())
-            .child(
-                v_flex()
-                    .size_full()
-                    .absolute()
-                    .inset_0()
-                    .items_center()
-                    .justify_center()
-                    .child(Spinner::new().large()),
-            )
-    }
-
     /// Render the page navigation tabs
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let page_index = self.page.index();
@@ -329,7 +44,7 @@ impl Gallery {
             Page::Gallery if self.settings.view == View::Grouped => format!(
                 "{} images in {} folders",
                 util::format_num(self.filtered_images.len()),
-                util::format_num(self.groups.len())
+                util::format_num(self.grouped_view.read(cx).group_count())
             ),
             Page::Gallery => format!("{} images", util::format_num(self.filtered_images.len())),
             Page::Bookmarks => format!(
@@ -461,7 +176,7 @@ impl Gallery {
                                 .icon(IconAsset::Minus)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
-                                    this.zoom_grid_out(cx);
+                                    this.zoom_view_out(cx);
                                 })),
                         )
                         .child(
@@ -470,7 +185,7 @@ impl Gallery {
                                 .icon(IconAsset::Plus)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
-                                    this.zoom_grid_in(cx);
+                                    this.zoom_view_in(cx);
                                 })),
                         ),
                 )
@@ -595,105 +310,6 @@ impl Gallery {
             .text_color(cx.theme().muted_foreground)
             .child("No images found.")
     }
-
-    /// Render a virtualized image list with its scrollbar
-    fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let total_count = self.filtered_images.len();
-
-        div()
-            .image_cache(super::cache::simple_lru_cache(
-                super::CONTEXT_GRID,
-                GRID_CACHE_ITEMS,
-            ))
-            .flex_1()
-            .min_h_0()
-            .relative()
-            .child(
-                uniform_list(
-                    "list",
-                    total_count,
-                    cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                        let mut items = Vec::new();
-                        for index in range {
-                            let id: ImageId = this.filtered_images[index].clone();
-                            let image = this.get_image_entry(&id).expect("image should exist");
-                            let thumb = this.render_thumb(&id, cx);
-
-                            items.push(
-                                h_flex()
-                                    .id(hash_path(image.id.path()) as usize)
-                                    .px(px(GRID_OUTER_MARGIN))
-                                    .py_2()
-                                    .w_full()
-                                    .gap_4()
-                                    .when(index != 0, |el| el.border_t_1())
-                                    .items_center()
-                                    .rounded_md()
-                                    .overflow_hidden()
-                                    .border_color(cx.theme().border)
-                                    .cursor_pointer()
-                                    .child(
-                                        div()
-                                            .flex_shrink_0()
-                                            .overflow_hidden()
-                                            .size(px(80.))
-                                            .child(thumb),
-                                    )
-                                    .child(
-                                        v_flex()
-                                            .justify_center()
-                                            .flex_1()
-                                            .overflow_hidden()
-                                            .text_overflow(gpui::TextOverflow::TruncateMiddle(
-                                                SharedString::new_static(TRUNCATE_STR),
-                                            ))
-                                            .child(image.id.path().to_string_lossy().to_string()),
-                                    ),
-                            );
-                        }
-                        items
-                    }),
-                )
-                .size_full(),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .right_0()
-                    .bottom_0()
-                    .child(Scrollbar::vertical(&self.grid)),
-            )
-    }
-
-    /// Render a virtualized image grid with its scrollbar
-    fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .image_cache(super::cache::simple_lru_cache(
-                super::CONTEXT_GRID,
-                GRID_CACHE_ITEMS,
-            ))
-            .flex_1()
-            .min_h_0()
-            .relative()
-            .child(
-                list(
-                    self.grid.clone(),
-                    cx.processor(|this, index, _, cx| this.render_row(index, cx)),
-                )
-                .size_full(),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .right_0()
-                    .bottom_0()
-                    .child(Scrollbar::vertical(&self.grid)),
-            )
-    }
 }
 
 impl Focusable for Gallery {
@@ -704,20 +320,6 @@ impl Focusable for Gallery {
 
 impl Render for Gallery {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (columns, tile_size) = self.get_grid_layout(window);
-
-        let cols_changed = columns != self.num_columns;
-
-        // Check if tile size has changed by more than a sub-pixel threshold
-        let tile_size_changed = (tile_size - self.tile_size).abs() > 0.5;
-
-        if (cols_changed || tile_size_changed) && !self.library.images.is_empty() {
-            self.set_layout(columns, tile_size, cx);
-        }
-
-        // Queue thumbnails for the visible rows; state set here is picked up when rows render below
-        self.enqueue_visible(window, cx);
-
         let notif_layer = Root::render_notification_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
 
@@ -761,10 +363,12 @@ impl Render for Gallery {
             .map(|el| {
                 if self.filtered_images.is_empty() {
                     el.child(self.render_empty(cx))
-                } else if self.settings.view == View::List {
-                    el.child(self.render_list(cx))
                 } else {
-                    el.child(self.render_grid(cx))
+                    match self.settings.view {
+                        View::Grid => el.child(self.grid_view.clone()),
+                        View::Grouped => el.child(self.grouped_view.clone()),
+                        View::List => el.child(self.list_view.clone()),
+                    }
                 }
             })
             .when_some(self.lightbox_image_id().cloned(), |el, id| {

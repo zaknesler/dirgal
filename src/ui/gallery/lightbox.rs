@@ -372,7 +372,13 @@ impl Gallery {
                 .on_scroll_wheel(cx.listener(Self::on_image_scroll_wheel))
                 .on_pinch(cx.listener(Self::on_image_pinch))
                 .context_menu(move |menu, _, _| {
-                    Self::image_context_menu(menu, content_hash, is_bookmarked, page, &src_path)
+                    super::view::thumbnail::ImageTile::context_menu(
+                        menu,
+                        content_hash,
+                        is_bookmarked,
+                        page,
+                        &src_path,
+                    )
                 })
                 .child(
                     canvas(
