@@ -42,7 +42,7 @@ pub enum Row {
 
 impl Row {
     /// Split a range of images into tile rows
-    pub fn chunk_tiles(offset: usize, len: usize, columns: usize) -> impl Iterator<Item = Row> {
+    fn chunk_tiles(offset: usize, len: usize, columns: usize) -> impl Iterator<Item = Row> {
         (0..len).step_by(columns).map(move |start| {
             let end = (start + columns).min(len);
             Row::Tiles(offset + start..offset + end)
@@ -89,7 +89,7 @@ impl GroupedView {
     }
 
     /// Calculate columns and tile size
-    pub fn update_layout(&mut self, width: Pixels) {
+    fn update_layout(&mut self, width: Pixels) {
         let available = width.as_f32() - GRID_OUTER_MARGIN * 2.0;
         let columns = self.column_override.unwrap_or_else(|| {
             (((available + GRID_GAP) / (GRID_TILE_MIN + GRID_GAP)).floor() as usize).max(1)
@@ -118,12 +118,12 @@ impl GroupedView {
     }
 
     /// Return a grouped row
-    pub fn row(&self, index: usize) -> Option<Row> {
+    fn row(&self, index: usize) -> Option<Row> {
         self.rows.get(index).cloned()
     }
 
     /// Find a group by hash
-    pub fn group(&self, hash: GroupHash) -> Option<&Group> {
+    fn group(&self, hash: GroupHash) -> Option<&Group> {
         self.groups.iter().find(|group| group.hash == hash)
     }
 
@@ -133,24 +133,24 @@ impl GroupedView {
     }
 
     /// Check whether a group is collapsed
-    pub fn is_collapsed(&self, hash: GroupHash) -> bool {
+    fn is_collapsed(&self, hash: GroupHash) -> bool {
         self.collapsed_groups.contains(&hash)
     }
 
     /// Return filtered image indices for a grouped range
-    pub fn image_indices(&self, range: Range<usize>) -> &[usize] {
+    fn image_indices(&self, range: Range<usize>) -> &[usize] {
         &self.ordered_indices[range]
     }
 
     /// Find an image's position in grouped order
-    pub fn image_position(&self, image_ids: &[ImageId], id: &ImageId) -> Option<usize> {
+    fn image_position(&self, image_ids: &[ImageId], id: &ImageId) -> Option<usize> {
         self.ordered_indices
             .iter()
             .position(|index| &image_ids[*index] == id)
     }
 
     /// Return the first image in an expanded group
-    pub fn first_image(&self, image_ids: &[ImageId]) -> Option<ImageId> {
+    fn first_image(&self, image_ids: &[ImageId]) -> Option<ImageId> {
         self.groups
             .iter()
             .find(|group| !self.collapsed_groups.contains(&group.hash))
@@ -166,7 +166,7 @@ impl GroupedView {
     }
 
     /// Toggle one group
-    pub fn toggle_group(&mut self, hash: GroupHash) {
+    fn toggle_group(&mut self, hash: GroupHash) {
         if !self.collapsed_groups.remove(&hash) {
             self.collapsed_groups.insert(hash);
         }
@@ -174,7 +174,7 @@ impl GroupedView {
     }
 
     /// Collapse or expand every group
-    pub fn toggle_all(&mut self) {
+    fn toggle_all(&mut self) {
         if self.collapsed_groups.len() == self.groups.len() {
             self.collapsed_groups.clear();
         } else {
@@ -184,7 +184,7 @@ impl GroupedView {
     }
 
     /// Return filtered image indices near the viewport
-    pub fn visible_image_indices(&self, viewport_height: f32) -> Vec<usize> {
+    fn visible_image_indices(&self, viewport_height: f32) -> Vec<usize> {
         if self.rows.is_empty() {
             return Vec::new();
         }

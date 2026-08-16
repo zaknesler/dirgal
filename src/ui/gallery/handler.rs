@@ -41,7 +41,6 @@ impl Gallery {
         self.set_sort(sort, window, cx);
     }
 
-    /// Refresh the library
     pub fn on_refresh(
         &mut self,
         _: &actions::Refresh,
@@ -173,7 +172,6 @@ impl Gallery {
         }
     }
 
-    /// Toggle directory grouping
     pub fn on_togle_view(
         &mut self,
         _: &actions::ToggleView,
@@ -183,7 +181,6 @@ impl Gallery {
         self.toggle_view(window, cx);
     }
 
-    /// Toggle thumbnail fit
     pub fn on_toggle_thumbnail_fit(
         &mut self,
         _: &actions::ToggleThumbnailFit,
@@ -245,12 +242,10 @@ impl Gallery {
         self.reset_view_zoom(cx);
     }
 
-    /// Fill the lightbox area with the open image
     pub fn on_zoom_fill(&mut self, _: &actions::ZoomFill, _: &mut Window, cx: &mut Context<Self>) {
         self.zoom_lightbox_fill(cx);
     }
 
-    /// Copy the full path to the clipboard
     pub fn on_copy_path_to_clipboard(
         &mut self,
         action: &actions::CopyPathToClipboard,
@@ -271,12 +266,10 @@ impl Gallery {
         }
     }
 
-    /// Copy the file(s) at the given path(s)
     pub fn on_copy_image(&mut self, _: &actions::CopyImage, _: &mut Window, _: &mut Context<Self>) {
         unimplemented!()
     }
 
-    /// Trash the file(s) at the given path(s)
     pub fn on_trash_file(
         &mut self,
         action: &actions::TrashFile,
@@ -293,7 +286,6 @@ impl Gallery {
         }
     }
 
-    /// Permanently delete the file(s) at the given path(s)
     pub fn on_delete_file(
         &mut self,
         action: &actions::DeleteFile,
@@ -422,7 +414,6 @@ impl Gallery {
         cx.notify();
     }
 
-    /// Move keyboard focus to the search input
     pub fn on_focus_search(
         &mut self,
         _: &actions::FocusSearch,
@@ -432,7 +423,6 @@ impl Gallery {
         self.input_focus_handle.focus(window, cx);
     }
 
-    /// Jump the active view to the very top
     pub fn on_jump_to_top(
         &mut self,
         _: &actions::JumpToTop,
@@ -442,7 +432,6 @@ impl Gallery {
         self.scroll_view(ScrollTarget::Start, cx);
     }
 
-    /// Jump the active view to the very bottom
     pub fn on_jump_to_bottom(
         &mut self,
         _: &actions::JumpToBottom,

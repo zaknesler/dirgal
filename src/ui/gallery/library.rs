@@ -84,6 +84,7 @@ impl Library {
     }
 
     pub fn get(&self, id: &ImageId) -> Option<&ImageEntry> {
+        // TODO: make this more resilient? it shouldn't just assume it's in the dupe index
         if let Some(index) = self.image_index.get(id) {
             self.images.get(*index)
         } else {
