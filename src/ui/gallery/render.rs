@@ -1,6 +1,6 @@
 use crate::ui::{gallery::Gallery, model::*, *};
 use crate::{assets::IconAsset, core::util};
-use gpui::{App, Context, FocusHandle, Focusable, Window, div, prelude::*, px};
+use gpui::{App, ClickEvent, Context, FocusHandle, Focusable, Window, div, prelude::*, px};
 use gpui_component::{
     ActiveTheme, Icon, Root,
     button::{Button, ButtonVariants as _, Toggle, ToggleGroup, ToggleVariants},
@@ -275,27 +275,25 @@ impl Gallery {
                                 Button::new("bulk-trash")
                                     .ghost()
                                     .icon(IconAsset::Trash)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        cx.stop_propagation();
-                                        this.on_trash_file(
-                                            &actions::TrashFile::Current,
-                                            window,
-                                            cx,
-                                        );
-                                    })),
-                            )
-                            .child(
-                                Button::new("bulk-delete")
-                                    .ghost()
-                                    .icon(IconAsset::CircleX)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        cx.stop_propagation();
-                                        this.on_delete_file(
-                                            &actions::DeleteFile::Current,
-                                            window,
-                                            cx,
-                                        );
-                                    })),
+                                    .on_click(cx.listener(
+                                        |this, event: &ClickEvent, window, cx| {
+                                            cx.stop_propagation();
+
+                                            if event.modifiers().secondary() {
+                                                this.on_delete_file(
+                                                    &actions::DeleteFile::Current,
+                                                    window,
+                                                    cx,
+                                                );
+                                            } else {
+                                                this.on_trash_file(
+                                                    &actions::TrashFile::Current,
+                                                    window,
+                                                    cx,
+                                                );
+                                            }
+                                        },
+                                    )),
                             ),
                     ),
             )

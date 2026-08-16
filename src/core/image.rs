@@ -209,29 +209,29 @@ pub fn deduplicate_and_sort(
     images: Vec<ImageEntry>,
     sort: Sort,
 ) -> (Vec<ImageEntry>, Vec<ImageEntry>) {
-    let mut unique: Vec<ImageEntry> = Vec::new();
-    let mut duplicates: Vec<ImageEntry> = Vec::new();
-
-    let mut hash: HashMap<ContentHash, Vec<ImageEntry>> = HashMap::new();
-    for image in images.iter().rev() {
-        // If the image already exists with this has, it must be a dupe
-        if let Some(existing) = hash.get_mut(&image.content_hash) {
-            existing.push(image.to_owned());
-        } else {
-            hash.insert(image.content_hash, vec![image.to_owned()]);
-            unique.push(image.to_owned());
-        }
+    // Prefill groups with
+    let mut groups: HashMap<ContentHash, Vec<ImageEntry>> = HashMap::new();
+    for image in images {
+        groups.entry(image.content_hash).or_default().push(image);
     }
 
-    // Combine duplicates and keep them next to each other
-    for (_, images) in hash.iter() {
-        let images = images.to_owned();
-        if images.len() > 1 {
-            duplicates.extend(images);
+    let mut unique: Vec<ImageEntry> = Vec::new();
+    let mut duplicate_groups: Vec<Vec<ImageEntry>> = Vec::new();
+
+    for mut group in groups.into_values() {
+        unique.push(group.last().unwrap().clone());
+
+        // Keep duplicate images sorted next to each other
+        if group.len() > 1 {
+            group.sort_by(|a, b| compare_key(a, b, sort));
+            duplicate_groups.push(group);
         }
     }
 
     unique.sort_by(|a, b| compare_key(a, b, sort));
+    duplicate_groups.sort_by(|a, b| compare_key(&a[0], &b[0], sort));
+
+    let duplicates = duplicate_groups.into_iter().flatten().collect();
 
     (unique, duplicates)
 }
