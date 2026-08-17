@@ -85,8 +85,9 @@ pub fn compare_paths(a: &Path, b: &Path) -> std::cmp::Ordering {
 
 /// Extract the first valid `YYYY-MM-DD` date in a path
 pub fn extract_date_from_path(path: &Path) -> Option<(u32, u32, u32)> {
-    static DATE_RE: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap());
+    static DATE_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})").expect("regex is valid")
+    });
 
     let text = path.to_string_lossy();
 
