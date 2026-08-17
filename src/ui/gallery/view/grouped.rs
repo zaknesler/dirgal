@@ -289,9 +289,7 @@ impl GroupedView {
         let Some(row) = self.row(index) else {
             return div().into_any_element();
         };
-        let Some(gallery) = self.gallery.upgrade() else {
-            return div().into_any_element();
-        };
+        let gallery = self.gallery.upgrade().expect("gallery should exist");
 
         match row {
             Row::Header(group_hash) => self.render_header(&gallery, group_hash, cx),
@@ -390,14 +388,13 @@ impl Render for GroupedView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_layout(window.viewport_size().width);
 
-        if let Some(gallery) = self.gallery.upgrade() {
-            let visible = self.visible_image_indices();
-            let image_ids = visible
-                .into_iter()
-                .filter_map(|index| gallery.read(cx).filtered_images.get(index).cloned())
-                .collect::<Vec<_>>();
-            cx.emit(GalleryViewEvent::VisibleImagesChanged(image_ids));
-        }
+        let gallery = self.gallery.upgrade().expect("gallery should exist");
+        let visible = self.visible_image_indices();
+        let image_ids = visible
+            .into_iter()
+            .filter_map(|index| gallery.read(cx).filtered_images.get(index).cloned())
+            .collect::<Vec<_>>();
+        cx.emit(GalleryViewEvent::VisibleImagesChanged(image_ids));
 
         let sizes = self
             .rows

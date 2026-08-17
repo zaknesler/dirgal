@@ -57,9 +57,8 @@ impl ListView {
 impl Render for ListView {
     /// Render the virtualized image list
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(gallery) = self.gallery.upgrade() else {
-            return div();
-        };
+        let gallery = self.gallery.upgrade().expect("gallery should exist");
+
         let image_count = gallery.read(cx).filtered_images.len();
         let visible = self.visible_range(image_count);
         let image_ids = gallery.read(cx).filtered_images[visible].to_vec();
@@ -81,15 +80,15 @@ impl Render for ListView {
                     "list",
                     image_count,
                     cx.processor(move |view, range: Range<usize>, _, cx| {
-                        let Some(gallery) = view.gallery.upgrade() else {
-                            return Vec::new();
-                        };
+                        let gallery = view.gallery.upgrade().expect("gallery should exist");
+
                         if view.set_visible_range(range.clone()) {
                             cx.notify();
                         }
-                        let image_ids = gallery.read(cx).filtered_images[range.clone()].to_vec();
-                        let mut items = Vec::new();
 
+                        let image_ids = gallery.read(cx).filtered_images[range.clone()].to_vec();
+
+                        let mut items = Vec::new();
                         for (index, id) in range.zip(image_ids) {
                             let gallery_state = gallery.read(cx);
                             let image = gallery_state
