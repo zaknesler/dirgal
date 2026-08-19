@@ -251,6 +251,10 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
         return compare_date_in_path(a, b, sort.ascending);
     }
 
+    if sort.key == SortKey::Resolution {
+        return compare_resolution(a, b, sort.ascending);
+    }
+
     // First compare based on the sort key, but always fall back to compare_paths
     let ord = match sort.key {
         SortKey::Name => compare_paths(a.id.path(), b.id.path()),
@@ -266,13 +270,7 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
             .bytes
             .cmp(&b.bytes)
             .then_with(|| compare_paths(a.id.path(), b.id.path())),
-        SortKey::Resolution => {
-            let area_a = a.dimensions.map(|(w, h)| w as u64 * h as u64);
-            let area_b = b.dimensions.map(|(w, h)| w as u64 * h as u64);
-            area_a
-                .cmp(&area_b)
-                .then_with(|| compare_paths(a.id.path(), b.id.path()))
-        }
+        SortKey::Resolution => unreachable!("handled above"),
         SortKey::DateInPath => unreachable!("handled above"),
     };
 
@@ -291,6 +289,23 @@ fn compare_date_in_path(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Orde
         (Some(da), Some(db)) => {
             let ord = da
                 .cmp(&db)
+                .then_with(|| compare_paths(a.id.path(), b.id.path()));
+            if ascending { ord } else { ord.reverse() }
+        }
+    }
+}
+
+/// Compare by resolution (pixel area), keeping images with no dimensions at the end regardless of direction
+fn compare_resolution(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Ordering {
+    match (a.dimensions, b.dimensions) {
+        (None, None) => compare_paths(a.id.path(), b.id.path()),
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some((wa, ha)), Some((wb, hb))) => {
+            let area_a = wa as u64 * ha as u64;
+            let area_b = wb as u64 * hb as u64;
+            let ord = area_a
+                .cmp(&area_b)
                 .then_with(|| compare_paths(a.id.path(), b.id.path()));
             if ascending { ord } else { ord.reverse() }
         }
