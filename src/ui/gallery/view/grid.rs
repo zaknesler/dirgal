@@ -86,9 +86,7 @@ impl Render for GridView {
     /// Render the virtualized flat grid
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_layout(window.viewport_size().width);
-        let Some(gallery) = self.gallery.upgrade() else {
-            return div();
-        };
+        let gallery = self.gallery.upgrade().expect("gallery should exist");
         let image_count = gallery.read(cx).filtered_images.len();
         let visible = self.visible_image_range(image_count);
         let image_ids = gallery.read(cx).filtered_images[visible].to_vec();
@@ -111,9 +109,7 @@ impl Render for GridView {
                     "grid",
                     row_count,
                     cx.processor(move |view, range: Range<usize>, _, cx| {
-                        let Some(gallery) = view.gallery.upgrade() else {
-                            return Vec::new();
-                        };
+                        let gallery = view.gallery.upgrade().expect("gallery should exist");
 
                         // Keep track of which rows are visible (mainly for thumbnail queue)
                         if view.set_visible_rows(range.clone()) {
