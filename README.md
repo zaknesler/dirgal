@@ -32,17 +32,22 @@ dirgal
 dirgal ~/Downloads ~/Pictures
 ```
 
+### Todo
+
+- Error/warning notifications (toasts or something)
+  - Make utils return results, and handle all the error popups/tracing logs in the gallery
+- Ensure GIFs don't crash
+  - switching between GIFs can crash if the currently-playing GIF is on a frame that is beyond the frame count of the next GIF file
+- Stats (e.g. number of images, duplicate count, total size, num folders, etc.)
+- Improved filtering/searching
+- Better experience when selecting multiple items
+- Metadata info (including EXIF data)
+
 ### Ideas
 
 Some of these are completely out-of-scope and unrealistic, but would be nice to have:
 
-- Ensure GIFs don't crash
-  - switching between GIFs can crash if the currently-playing GIF is on a frame that is beyond the frame count of the next GIF file
-- File actions (e.g. copy, rename, delete, etc.)
-- Metadata info (including EXIF data)
-- Better experience when selecting multiple items
-- Stats (e.g. number of images, duplicate count, total size, num folders, etc.)
-- Improved filtering/searching
+- Copy and rename
 - More keyboard navigation
 - `--no-cache` to... bypass the cache of course
 - Improved duplicate detection/experience (it currently hides duplicate images from the main view)
@@ -53,8 +58,3 @@ Some of these are completely out-of-scope and unrealistic, but would be nice to 
 - Videos?
 - Similar image detection?
 - Batch renaming?
-
-### Todo
-
-- Error/warning notifications (toasts or something)
-  - Make utils return results, and handle all the error popups/tracing logs in the gallery
