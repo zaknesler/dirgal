@@ -13,12 +13,14 @@ pub enum SortKey {
     Created,
     Size,
     DateInPath,
+    Resolution,
 }
 
 impl SortKey {
-    pub const ALL: [(SortKey, &'static str); 5] = [
+    pub const ALL: [(SortKey, &'static str); 6] = [
         (SortKey::Name, "Name"),
         (SortKey::Size, "Size"),
+        (SortKey::Resolution, "Resolution"),
         (SortKey::Created, "Date created"),
         (SortKey::Modified, "Date modified"),
         (SortKey::DateInPath, "Date in path"),

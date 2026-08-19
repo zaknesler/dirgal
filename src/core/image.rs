@@ -251,6 +251,7 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
         return compare_date_in_path(a, b, sort.ascending);
     }
 
+    // First compare based on the sort key, but always fall back to compare_paths
     let ord = match sort.key {
         SortKey::Name => compare_paths(a.id.path(), b.id.path()),
         SortKey::Modified => a
@@ -265,6 +266,13 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
             .bytes
             .cmp(&b.bytes)
             .then_with(|| compare_paths(a.id.path(), b.id.path())),
+        SortKey::Resolution => {
+            let area_a = a.dimensions.map(|(w, h)| w as u64 * h as u64);
+            let area_b = b.dimensions.map(|(w, h)| w as u64 * h as u64);
+            area_a
+                .cmp(&area_b)
+                .then_with(|| compare_paths(a.id.path(), b.id.path()))
+        }
         SortKey::DateInPath => unreachable!("handled above"),
     };
 
