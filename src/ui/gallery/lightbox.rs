@@ -434,8 +434,6 @@ impl Gallery {
     /// Render the lightbox footer with position, name, size, and bookmark toggle
     fn render_info_bar(&self, id: &ImageId, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = self.get_image_entry(id).expect("image should exist");
-        let name = label_for(&self.library.roots, entry.id.path());
-        let bytes = format_bytes(entry.bytes);
 
         let position = self.get_visible_position(id).map(|p| p + 1).unwrap_or(0);
         let counter = format!(
@@ -443,7 +441,6 @@ impl Gallery {
             util::format_num(position),
             util::format_num(self.filtered_images.len())
         );
-
         let counter = || {
             Tag::secondary()
                 .flex_none()
@@ -453,6 +450,7 @@ impl Gallery {
                 .child(counter)
         };
 
+        let name = label_for(&self.library.roots, entry.id.path());
         let name = || {
             div()
                 .flex_1()
@@ -466,11 +464,20 @@ impl Gallery {
                 .child(name)
         };
 
-        let size = || {
+        let dimensions = entry.dimensions;
+        let bytes = format_bytes(entry.bytes);
+        let info = || {
             h_flex()
-                .flex_none()
+                .gap_2()
                 .text_right()
                 .text_color(cx.theme().muted_foreground)
+                .map(|el| {
+                    if let Some((width, height)) = dimensions {
+                        el.child(format!("{}x{}", width, height)).child("·")
+                    } else {
+                        el
+                    }
+                })
                 .child(bytes)
         };
 
@@ -524,7 +531,7 @@ impl Gallery {
             h_flex()
                 .id("info-bar")
                 .min_w_0()
-                .max_w(px(750.))
+                .max_w(px(900.))
                 .w_full()
                 .items_center()
                 .overflow_hidden()
@@ -541,7 +548,7 @@ impl Gallery {
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                 .child(counter())
                 .child(name())
-                .child(size())
+                .child(info())
                 .child(actions()),
         )
     }
