@@ -36,6 +36,8 @@ dirgal ~/Downloads ~/Pictures
 
 Some of these are completely out-of-scope and unrealistic, but would be nice to have:
 
+- Ensure GIFs don't crash
+  - switching between GIFs can crash if the currently-playing GIF is on a frame that is beyond the frame count of the next GIF file
 - File actions (e.g. copy, rename, delete, etc.)
 - Metadata info (including EXIF data)
 - Better experience when selecting multiple items

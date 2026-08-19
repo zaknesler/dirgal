@@ -277,39 +277,45 @@ pub fn compare_key(a: &ImageEntry, b: &ImageEntry, sort: Sort) -> Ordering {
     if sort.ascending { ord } else { ord.reverse() }
 }
 
-/// Compare by embedded path date, keeping dateless images at the end regardless of direction
-fn compare_date_in_path(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Ordering {
-    match (
-        crate::core::path::extract_date_from_path(a.id.path()),
-        crate::core::path::extract_date_from_path(b.id.path()),
-    ) {
-        (None, None) => compare_paths(a.id.path(), b.id.path()),
+/// Compare two optional values, but keep missing values sorted by path, always at the end
+fn compare_optional_field<T: Ord>(
+    a: Option<T>,
+    b: Option<T>,
+    ascending: bool,
+    a_path: &Path,
+    b_path: &Path,
+) -> Ordering {
+    match (a, b) {
+        (None, None) => compare_paths(a_path, b_path),
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,
-        (Some(da), Some(db)) => {
-            let ord = da
-                .cmp(&db)
-                .then_with(|| compare_paths(a.id.path(), b.id.path()));
+        (Some(va), Some(vb)) => {
+            let ord = va.cmp(&vb).then_with(|| compare_paths(a_path, b_path));
             if ascending { ord } else { ord.reverse() }
         }
     }
 }
 
+/// Compare by embedded path date, keeping dateless images at the end regardless of direction
+fn compare_date_in_path(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Ordering {
+    compare_optional_field(
+        crate::core::path::extract_date_from_path(a.id.path()),
+        crate::core::path::extract_date_from_path(b.id.path()),
+        ascending,
+        a.id.path(),
+        b.id.path(),
+    )
+}
+
 /// Compare by resolution (pixel area), keeping images with no dimensions at the end regardless of direction
 fn compare_resolution(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Ordering {
-    match (a.dimensions, b.dimensions) {
-        (None, None) => compare_paths(a.id.path(), b.id.path()),
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-        (Some((wa, ha)), Some((wb, hb))) => {
-            let area_a = wa as u64 * ha as u64;
-            let area_b = wb as u64 * hb as u64;
-            let ord = area_a
-                .cmp(&area_b)
-                .then_with(|| compare_paths(a.id.path(), b.id.path()));
-            if ascending { ord } else { ord.reverse() }
-        }
-    }
+    compare_optional_field(
+        a.dimensions.map(|(w, h)| w as u64 * h as u64),
+        b.dimensions.map(|(w, h)| w as u64 * h as u64),
+        ascending,
+        a.id.path(),
+        b.id.path(),
+    )
 }
 
 /// Resolve configured bookmark hashes against loaded images, dropping unknowns
