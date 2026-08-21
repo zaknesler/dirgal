@@ -384,6 +384,7 @@ impl Gallery {
 
         let image = || {
             div()
+                .id("lightbox-image-area")
                 .relative()
                 .map(|el| match image_bounds {
                     // Place the image where the zoom and scroll offset put it
@@ -412,6 +413,15 @@ impl Gallery {
                         .size_full()
                         .object_fit(ObjectFit::Contain),
                 )
+                .context_menu(move |menu, _, _| {
+                    super::view::thumbnail::ImageTile::context_menu(
+                        menu,
+                        content_hash,
+                        is_bookmarked,
+                        page,
+                        &src_path,
+                    )
+                })
         };
 
         let image_view = |cx: &mut Context<'_, Self>| {
@@ -442,11 +452,6 @@ impl Gallery {
                         return;
                     }
 
-                    // TODO: Open context menu on when image is right clicked (not the entire overlay)
-                    // if event.is_right_click() {
-                    //     return;
-                    // }
-
                     // Now the click will bubble up to the lightbox's click handler and should close the modal
                 }))
                 .on_scroll_wheel(cx.listener(Self::handle_image_scroll_wheel))
@@ -456,15 +461,6 @@ impl Gallery {
                 .on_mouse_up(MouseButton::Left, cx.listener(Self::handle_mouse_up))
                 .on_mouse_up(MouseButton::Middle, cx.listener(Self::handle_mouse_up))
                 .on_mouse_move(cx.listener(Self::handle_mouse_move))
-                .context_menu(move |menu, _, _| {
-                    super::view::thumbnail::ImageTile::context_menu(
-                        menu,
-                        content_hash,
-                        is_bookmarked,
-                        page,
-                        &src_path,
-                    )
-                })
                 .child(
                     canvas(
                         move |bounds, _, cx| {
