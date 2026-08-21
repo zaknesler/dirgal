@@ -436,8 +436,9 @@ impl Gallery {
                         return;
                     }
 
-                    // Clicks on the backdrop (not the image) should bubble up and close the lightbox
-                    if !this.is_position_within_image(event.position()) {
+                    // Do not close the lightbox when the click lands within the bounds of the image
+                    if this.is_position_within_image(event.position()) {
+                        cx.stop_propagation();
                         return;
                     }
 
@@ -446,7 +447,7 @@ impl Gallery {
                     //     return;
                     // }
 
-                    cx.stop_propagation();
+                    // Now the click will bubble up to the lightbox's click handler and should close the modal
                 }))
                 .on_scroll_wheel(cx.listener(Self::handle_image_scroll_wheel))
                 .on_pinch(cx.listener(Self::handle_image_pinch))
