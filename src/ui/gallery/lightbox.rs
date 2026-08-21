@@ -11,9 +11,9 @@ use crate::ui::actions;
 use crate::ui::gallery::Gallery;
 use crate::ui::{gallery::constant::*, model::*};
 use gpui::{
-    Bounds, ClickEvent, Context, DevicePixels, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, ScrollWheelEvent, SharedString, Size,
-    Window, canvas, div, img, point, prelude::*, px, size,
+    Bounds, ClickEvent, Context, DevicePixels, DispatchPhase, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, ScrollWheelEvent,
+    SharedString, Size, Window, canvas, div, img, point, prelude::*, px, size,
 };
 use gpui_component::{
     ActiveTheme, Sizable as _,
@@ -369,6 +369,7 @@ impl Gallery {
             .lightbox
             .as_ref()
             .and_then(|lightbox| lightbox.image_bounds_in_area());
+        let is_dragging = self.lightbox.as_ref().is_some_and(Lightbox::is_dragging);
 
         let image = || {
             div()
@@ -404,6 +405,7 @@ impl Gallery {
 
         let image_view = |cx: &mut Context<'_, Self>| {
             let this = cx.entity();
+            let weak_gallery = this.downgrade();
 
             div()
                 .id("image-area")
@@ -447,7 +449,26 @@ impl Gallery {
                             // We need to do this weird thing here to get the bounds
                             this.update(cx, |this, cx| this.set_image_area_bounds(bounds, cx))
                         },
-                        |_, _, _, _| {},
+                        move |_, _, window, _| {
+                            // Listen for mouse up event on window, otherwise it won't work on trackpads
+                            // https://github.com/zed-industries/zed/blob/daec37bdc54d3985ff2a8175fd05b73d0444d569/crates/image_viewer/src/image_viewer.rs#L502-L528
+                            if is_dragging {
+                                let weak_gallery = weak_gallery.clone();
+                                window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
+                                    if phase == DispatchPhase::Bubble
+                                        && let Some(gallery) = weak_gallery.upgrade()
+                                    {
+                                        gallery.update(cx, |this, cx| {
+                                            if let Some(lightbox) = this.lightbox.as_mut() {
+                                                lightbox.last_mouse_position = None;
+                                            }
+
+                                            cx.notify();
+                                        });
+                                    }
+                                });
+                            }
+                        },
                     )
                     .absolute()
                     .size_full(),
