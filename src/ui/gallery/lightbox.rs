@@ -11,8 +11,9 @@ use crate::ui::actions;
 use crate::ui::gallery::Gallery;
 use crate::ui::{gallery::constant::*, model::*};
 use gpui::{
-    Bounds, ClickEvent, Context, DevicePixels, ObjectFit, PinchEvent, Pixels, Point,
-    ScrollWheelEvent, SharedString, Size, Window, canvas, div, img, point, prelude::*, px, size,
+    Bounds, ClickEvent, Context, DevicePixels, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, ScrollWheelEvent, SharedString, Size,
+    Window, canvas, div, img, point, prelude::*, px, size,
 };
 use gpui_component::{
     ActiveTheme, Sizable as _,
@@ -34,6 +35,8 @@ pub struct Lightbox {
     pub zoom: f32,
     /// How far the image is scrolled from the center of the area
     pub offset: Point<Pixels>,
+
+    pub last_mouse_position: Option<Point<Pixels>>,
 }
 
 impl Lightbox {
@@ -44,11 +47,17 @@ impl Lightbox {
             area_bounds: None,
             zoom: 1.0,
             offset: Point::default(),
+            last_mouse_position: None,
         }
     }
 
+    /// We keep track of the last mouse position to determine dragging a click
+    fn is_dragging(&self) -> bool {
+        self.last_mouse_position.is_some()
+    }
+
     /// Bounds of the image as drawn, which is smaller than the area when it is letterboxed
-    pub fn image_bounds(&self) -> Option<Bounds<Pixels>> {
+    fn image_bounds(&self) -> Option<Bounds<Pixels>> {
         let area = self.area_bounds?;
         let image_size = self.scaled_size()?;
 
@@ -62,7 +71,7 @@ impl Lightbox {
     }
 
     /// Bounds of the image relative to its area, where children are positioned from
-    pub fn image_bounds_in_area(&self) -> Option<Bounds<Pixels>> {
+    fn image_bounds_in_area(&self) -> Option<Bounds<Pixels>> {
         let bounds = self.image_bounds()?;
 
         Some(Bounds {
@@ -234,8 +243,54 @@ impl Gallery {
         cx.notify();
     }
 
+    fn handle_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        if event.button == MouseButton::Left || event.button == MouseButton::Middle {
+            lightbox.last_mouse_position = Some(event.position);
+            cx.notify();
+        }
+    }
+
+    fn handle_mouse_up(&mut self, _: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        lightbox.last_mouse_position = None;
+        cx.notify();
+    }
+
+    fn handle_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(lightbox) = self.lightbox.as_mut() else {
+            return;
+        };
+
+        if lightbox.is_dragging() {
+            if let Some(last_pos) = lightbox.last_mouse_position {
+                let delta = event.position - last_pos;
+                lightbox.offset += delta;
+            }
+
+            lightbox.last_mouse_position = Some(event.position);
+            cx.notify();
+        }
+    }
+
     /// Pan around (or zoom) the open image
-    fn on_image_scroll_wheel(
+    fn handle_image_scroll_wheel(
         &mut self,
         event: &ScrollWheelEvent,
         window: &mut Window,
@@ -265,7 +320,7 @@ impl Gallery {
     }
 
     /// Pinch to zoom around the center of the gesture
-    fn on_image_pinch(&mut self, event: &PinchEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn handle_image_pinch(&mut self, event: &PinchEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.zoom_lightbox_by(1.0 + event.delta, Some(event.position), cx);
     }
 
@@ -370,8 +425,13 @@ impl Gallery {
 
                     cx.stop_propagation();
                 }))
-                .on_scroll_wheel(cx.listener(Self::on_image_scroll_wheel))
-                .on_pinch(cx.listener(Self::on_image_pinch))
+                .on_scroll_wheel(cx.listener(Self::handle_image_scroll_wheel))
+                .on_pinch(cx.listener(Self::handle_image_pinch))
+                .on_mouse_down(MouseButton::Left, cx.listener(Self::handle_mouse_down))
+                .on_mouse_down(MouseButton::Middle, cx.listener(Self::handle_mouse_down))
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::handle_mouse_up))
+                .on_mouse_up(MouseButton::Middle, cx.listener(Self::handle_mouse_up))
+                .on_mouse_move(cx.listener(Self::handle_mouse_move))
                 .context_menu(move |menu, _, _| {
                     super::view::thumbnail::ImageTile::context_menu(
                         menu,
