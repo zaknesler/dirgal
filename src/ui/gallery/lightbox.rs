@@ -35,8 +35,11 @@ pub struct Lightbox {
     pub zoom: f32,
     /// How far the image is scrolled from the center of the area
     pub offset: Point<Pixels>,
-
+    /// The last position of the mouse, used to calculate drag distance
     pub last_mouse_position: Option<Point<Pixels>>,
+    /// Whether the mouse has moved since the last click, so a click after a drag doesn't close the lightbox
+    /// For a single click this will remain false
+    pub was_dragged: bool,
 }
 
 impl Lightbox {
@@ -48,6 +51,7 @@ impl Lightbox {
             zoom: 1.0,
             offset: Point::default(),
             last_mouse_position: None,
+            was_dragged: false,
         }
     }
 
@@ -243,6 +247,7 @@ impl Gallery {
         cx.notify();
     }
 
+    /// Handle when the user begins dragging the image
     fn handle_mouse_down(
         &mut self,
         event: &MouseDownEvent,
@@ -255,10 +260,12 @@ impl Gallery {
 
         if event.button == MouseButton::Left || event.button == MouseButton::Middle {
             lightbox.last_mouse_position = Some(event.position);
+            lightbox.was_dragged = false;
             cx.notify();
         }
     }
 
+    /// Handle when the user releases the mouse button, ending the image dragging
     fn handle_mouse_up(&mut self, _: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(lightbox) = self.lightbox.as_mut() else {
             return;
@@ -268,6 +275,7 @@ impl Gallery {
         cx.notify();
     }
 
+    /// Handle when the user moves the mouse, updating the lightbox offset if dragging
     fn handle_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
@@ -279,11 +287,14 @@ impl Gallery {
         };
 
         if lightbox.is_dragging() {
+            // Move the offset by the amount the user dragged since the last position
             if let Some(last_pos) = lightbox.last_mouse_position {
                 let delta = event.position - last_pos;
                 lightbox.offset += delta;
+                lightbox.was_dragged = true;
             }
 
+            // This is the new origin position for subsequent drag calculation
             lightbox.last_mouse_position = Some(event.position);
             cx.notify();
         }
@@ -415,6 +426,16 @@ impl Gallery {
                 .size_full()
                 .overflow_hidden()
                 .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+                    // Ignore the "click" that happens when it stop dragging
+                    if this
+                        .lightbox
+                        .as_ref()
+                        .is_some_and(|lightbox| lightbox.was_dragged)
+                    {
+                        cx.stop_propagation();
+                        return;
+                    }
+
                     // Clicks on the backdrop (not the image) should bubble up and close the lightbox
                     if !this.is_position_within_image(event.position()) {
                         return;
