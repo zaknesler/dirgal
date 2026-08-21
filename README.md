@@ -1,4 +1,9 @@
-<img width="100" src=".github/assets/logo.svg" />
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg">
+    <img src=".github/assets/logo-light.svg" alt="dirgal logo" width="100">
+  </picture>
+</p>
 
 **dirgal** _[directory gallery]_ is a fast, friendly image gallery you can open within a directory from your terminal.
 
