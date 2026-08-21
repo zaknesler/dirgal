@@ -36,12 +36,17 @@ dirgal ~/Downloads ~/Pictures
 
 - Error/warning notifications (toasts or something)
   - Make utils return results, and handle all the error popups/tracing logs in the gallery
-- Ensure GIFs don't crash
-  - switching between GIFs can crash if the currently-playing GIF is on a frame that is beyond the frame count of the next GIF file
+- Switching images in grouped view with a sort applied (e.g. size/date-in-path) moves between the ungrouped images
+- Arrow navigating up/down in grouped view:
+  - does not scroll page
+  - does not stay in the same column in groups with different sizes
 - Stats (e.g. number of images, duplicate count, total size, num folders, etc.)
 - Improved filtering/searching
 - Better experience when selecting multiple items
 - Metadata info (including EXIF data)
+- Ensure GIFs don't crash
+  - switching between GIFs can crash if the currently-playing GIF is on a frame that is beyond the frame count of the next GIF file
+  - (not sure what I can do about this...)
 
 ### Ideas
 

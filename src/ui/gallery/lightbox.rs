@@ -531,7 +531,7 @@ impl Gallery {
             h_flex()
                 .id("info-bar")
                 .min_w_0()
-                .max_w(px(900.))
+                .max_w(px(1200.))
                 .w_full()
                 .items_center()
                 .overflow_hidden()
