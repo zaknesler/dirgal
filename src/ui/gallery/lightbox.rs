@@ -35,7 +35,7 @@ pub struct Lightbox {
     pub zoom: f32,
     /// How far the image is scrolled from the center of the area
     pub offset: Point<Pixels>,
-    /// The last position of the mouse, used to calculate drag distance
+    /// The last position of the mouse, used to calculate dragging distance
     pub last_mouse_position: Option<Point<Pixels>>,
     /// Whether the mouse has moved since the last click, so a click after a drag doesn't close the lightbox
     /// For a single click this will remain false
@@ -55,7 +55,7 @@ impl Lightbox {
         }
     }
 
-    /// We keep track of the last mouse position to determine dragging a click
+    /// We keep track of the last mouse position to calculate dragging distance
     fn is_dragging(&self) -> bool {
         self.last_mouse_position.is_some()
     }
