@@ -301,9 +301,9 @@ impl Gallery {
         let mut keywords_pos: HashSet<&str> = HashSet::new();
         let mut keywords_neg: HashSet<&str> = HashSet::new();
         for k in all_keywords {
-            if k.starts_with('-') && k.len() > 1 {
-                keywords_neg.insert(k.trim_start_matches('-'));
-            } else if !k.starts_with('-') {
+            if k.starts_with('!') && k.len() > 1 {
+                keywords_neg.insert(k.trim_start_matches('!'));
+            } else if !k.starts_with('!') {
                 keywords_pos.insert(k);
             }
         }
