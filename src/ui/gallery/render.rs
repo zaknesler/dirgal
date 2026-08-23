@@ -281,13 +281,13 @@ impl Gallery {
                                             cx.stop_propagation();
 
                                             if event.modifiers().secondary() {
-                                                this.on_delete_file(
+                                                this.handle_delete_file(
                                                     &actions::DeleteFile::Current,
                                                     window,
                                                     cx,
                                                 );
                                             } else {
-                                                this.on_trash_file(
+                                                this.handle_trash_file(
                                                     &actions::TrashFile::Current,
                                                     window,
                                                     cx,
@@ -325,34 +325,36 @@ impl Render for Gallery {
         v_flex()
             .key_context(super::CONTEXT_GALLERY)
             .track_focus(&self.focus_handle)
-            .on_action(cx.listener(Self::on_apply_preset))
-            .on_action(cx.listener(Self::on_up))
-            .on_action(cx.listener(Self::on_down))
-            .on_action(cx.listener(Self::on_left))
-            .on_action(cx.listener(Self::on_right))
-            .on_action(cx.listener(Self::on_open_lightbox))
-            .on_action(cx.listener(Self::on_togle_view))
-            .on_action(cx.listener(Self::on_toggle_thumbnail_fit))
-            .on_action(cx.listener(Self::on_close))
-            .on_action(cx.listener(Self::on_minimize))
-            .on_action(cx.listener(Self::on_zoom_in))
-            .on_action(cx.listener(Self::on_zoom_out))
-            .on_action(cx.listener(Self::on_zoom_reset))
-            .on_action(cx.listener(Self::on_zoom_fill))
-            .on_action(cx.listener(Self::on_toggle_bookmark))
-            .on_action(cx.listener(Self::on_copy_path_to_clipboard))
-            .on_action(cx.listener(Self::on_copy_image))
-            .on_action(cx.listener(Self::on_trash_file))
-            .on_action(cx.listener(Self::on_delete_file))
-            .on_action(cx.listener(Self::on_open_in_finder))
-            .on_action(cx.listener(Self::on_reveal_in_gallery))
-            .on_action(cx.listener(Self::on_focus_search))
-            .on_action(cx.listener(Self::on_jump_to_top))
-            .on_action(cx.listener(Self::on_jump_to_bottom))
-            .on_action(cx.listener(Self::on_prev_page))
-            .on_action(cx.listener(Self::on_next_page))
-            .on_action(cx.listener(Self::on_toggle_collapse))
-            .on_action(cx.listener(Self::on_refresh))
+            .on_action(cx.listener(Self::handle_apply_preset))
+            .on_action(cx.listener(Self::handle_up))
+            .on_action(cx.listener(Self::handle_down))
+            .on_action(cx.listener(Self::handle_left))
+            .on_action(cx.listener(Self::handle_right))
+            .on_action(cx.listener(Self::handle_select_all))
+            .on_action(cx.listener(Self::handle_modify_selection))
+            .on_action(cx.listener(Self::handle_open_lightbox))
+            .on_action(cx.listener(Self::handle_togle_view))
+            .on_action(cx.listener(Self::handle_toggle_thumbnail_fit))
+            .on_action(cx.listener(Self::handle_close))
+            .on_action(cx.listener(Self::handle_minimize))
+            .on_action(cx.listener(Self::handle_zoom_in))
+            .on_action(cx.listener(Self::handle_zoom_out))
+            .on_action(cx.listener(Self::handle_zoom_reset))
+            .on_action(cx.listener(Self::handle_zoom_fill))
+            .on_action(cx.listener(Self::handle_toggle_bookmark))
+            .on_action(cx.listener(Self::handle_copy_path_to_clipboard))
+            .on_action(cx.listener(Self::handle_copy_image))
+            .on_action(cx.listener(Self::handle_trash_file))
+            .on_action(cx.listener(Self::handle_delete_file))
+            .on_action(cx.listener(Self::handle_open_in_finder))
+            .on_action(cx.listener(Self::handle_reveal_in_gallery))
+            .on_action(cx.listener(Self::handle_focus_search))
+            .on_action(cx.listener(Self::handle_jump_to_top))
+            .on_action(cx.listener(Self::handle_jump_to_bottom))
+            .on_action(cx.listener(Self::handle_prev_page))
+            .on_action(cx.listener(Self::handle_next_page))
+            .on_action(cx.listener(Self::handle_toggle_collapse))
+            .on_action(cx.listener(Self::handle_refresh))
             .relative()
             .size_full()
             .bg(cx.theme().background)

@@ -39,11 +39,13 @@ pub struct Gallery {
     // Data
     library: Library,
     filtered_images: Vec<ImageId>,
+    active_image: Option<ImageId>,
+    selected_images: Vec<ImageId>,
+
+    // Views
     grid_view: Entity<GridView>,
     grouped_view: Entity<GroupedView>,
     list_view: Entity<ListView>,
-    active_image: Option<ImageId>,
-    selected_images: Vec<ImageId>,
 
     // Thumbnails
     thumbs: HashMap<ContentHash, ThumbState>,
@@ -80,7 +82,7 @@ impl Gallery {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
 
-        cx.subscribe_in(&input, window, Self::on_input_event)
+        cx.subscribe_in(&input, window, Self::handle_input_event)
             .detach();
 
         let sort_select = cx.new(|cx| {
@@ -94,7 +96,7 @@ impl Gallery {
                 cx,
             )
         });
-        cx.subscribe_in(&sort_select, window, Self::on_sort)
+        cx.subscribe_in(&sort_select, window, Self::handle_sort)
             .detach();
 
         // Create the entities for each of the views
@@ -105,15 +107,15 @@ impl Gallery {
 
         // Subscribe to each view so that the gallery can be notified of their events
         cx.subscribe_in(&grid_view, window, |gallery, _, event, _, cx| {
-            gallery.on_view_event(event, cx);
+            gallery.handle_view_event(event, cx);
         })
         .detach();
         cx.subscribe_in(&grouped_view, window, |gallery, _, event, _, cx| {
-            gallery.on_view_event(event, cx);
+            gallery.handle_view_event(event, cx);
         })
         .detach();
         cx.subscribe_in(&list_view, window, |gallery, _, event, _, cx| {
-            gallery.on_view_event(event, cx);
+            gallery.handle_view_event(event, cx);
         })
         .detach();
 
@@ -717,6 +719,21 @@ impl Gallery {
 
         if let Some(next) = next {
             self.select_single_image(&next, cx);
+            self.scroll_to_image(&next, cx);
+        }
+    }
+
+    /// Add the image(s) in the given direction to the current selection
+    fn select_to_adjacent_image(&mut self, direction: view::Direction, cx: &mut Context<Self>) {
+        // Get the image from the current view
+        let next = self.current_view(cx).neighbor(
+            &self.filtered_images,
+            self.active_image.as_ref(),
+            direction,
+        );
+
+        if let Some(next) = next {
+            self.add_images_until_selection(&next, cx);
             self.scroll_to_image(&next, cx);
         }
     }

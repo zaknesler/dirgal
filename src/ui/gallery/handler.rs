@@ -21,7 +21,7 @@ use std::path::Path;
 
 impl Gallery {
     /// React to a sort-field selection from the dropdown
-    pub fn on_sort(
+    pub fn handle_sort(
         &mut self,
         _: &Entity<SelectState<Vec<String>>>,
         event: &SelectEvent<Vec<String>>,
@@ -41,7 +41,7 @@ impl Gallery {
         self.set_sort(sort, window, cx);
     }
 
-    pub fn on_refresh(
+    pub fn handle_refresh(
         &mut self,
         _: &actions::Refresh,
         _window: &mut Window,
@@ -50,7 +50,7 @@ impl Gallery {
         self.refresh_library(cx);
     }
 
-    pub fn on_apply_preset(
+    pub fn handle_apply_preset(
         &mut self,
         actions::ApplyPreset(key): &actions::ApplyPreset,
         window: &mut Window,
@@ -74,7 +74,7 @@ impl Gallery {
     }
 
     /// Re-filter the gallery as the search input changes
-    pub fn on_input_event(
+    pub fn handle_input_event(
         &mut self,
         _: &Entity<InputState>,
         event: &InputEvent,
@@ -92,7 +92,7 @@ impl Gallery {
     }
 
     /// Handle an interaction emitted by a gallery view
-    pub fn on_view_event(&mut self, event: &GalleryViewEvent, cx: &mut Context<Self>) {
+    pub fn handle_view_event(&mut self, event: &GalleryViewEvent, cx: &mut Context<Self>) {
         match event {
             GalleryViewEvent::SelectImage { id, mode } => match mode {
                 SelectionMode::Toggle if self.selected_images.contains(id) => {
@@ -113,7 +113,7 @@ impl Gallery {
         }
     }
 
-    pub fn on_up(&mut self, _: &actions::Up, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_up(&mut self, _: &actions::Up, _: &mut Window, cx: &mut Context<Self>) {
         if self.lightbox.is_some() {
             return;
         }
@@ -121,7 +121,7 @@ impl Gallery {
         self.select_adjacent_image(Direction::Up, cx);
     }
 
-    pub fn on_down(&mut self, _: &actions::Down, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_down(&mut self, _: &actions::Down, _: &mut Window, cx: &mut Context<Self>) {
         if self.lightbox.is_some() {
             return;
         }
@@ -129,7 +129,7 @@ impl Gallery {
         self.select_adjacent_image(Direction::Down, cx);
     }
 
-    pub fn on_left(&mut self, _: &actions::Left, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_left(&mut self, _: &actions::Left, _: &mut Window, cx: &mut Context<Self>) {
         if self.lightbox.is_some() {
             self.step(-1, cx);
             return;
@@ -138,7 +138,7 @@ impl Gallery {
         self.select_adjacent_image(Direction::Left, cx);
     }
 
-    pub fn on_right(&mut self, _: &actions::Right, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_right(&mut self, _: &actions::Right, _: &mut Window, cx: &mut Context<Self>) {
         if self.lightbox.is_some() {
             self.step(1, cx);
             return;
@@ -147,7 +147,40 @@ impl Gallery {
         self.select_adjacent_image(Direction::Right, cx);
     }
 
-    pub fn on_open_lightbox(
+    pub fn handle_select_all(
+        &mut self,
+        _: &actions::SelectAll,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let filtered = self.filtered_images.clone();
+
+        // TODO: combine selection logic somewhere?
+        if filtered.len() == self.selected_images.len() {
+            self.clear_selection(cx);
+        } else {
+            self.selected_images = filtered;
+            cx.notify();
+        }
+    }
+
+    pub fn handle_modify_selection(
+        &mut self,
+        action: &actions::ModifySelection,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let dir = match action {
+            actions::ModifySelection::Up => Direction::Up,
+            actions::ModifySelection::Down => Direction::Down,
+            actions::ModifySelection::Left => Direction::Left,
+            actions::ModifySelection::Right => Direction::Right,
+        };
+
+        self.select_to_adjacent_image(dir, cx);
+    }
+
+    pub fn handle_open_lightbox(
         &mut self,
         _: &actions::OpenLightbox,
         _: &mut Window,
@@ -172,7 +205,7 @@ impl Gallery {
         }
     }
 
-    pub fn on_togle_view(
+    pub fn handle_togle_view(
         &mut self,
         _: &actions::ToggleView,
         window: &mut Window,
@@ -181,7 +214,7 @@ impl Gallery {
         self.toggle_view(window, cx);
     }
 
-    pub fn on_toggle_thumbnail_fit(
+    pub fn handle_toggle_thumbnail_fit(
         &mut self,
         _: &actions::ToggleThumbnailFit,
         window: &mut Window,
@@ -195,11 +228,16 @@ impl Gallery {
         self.set_thumbnail_fit(thumbnail_fit, window, cx);
     }
 
-    pub fn on_close(&mut self, _: &actions::CloseLightbox, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_close(
+        &mut self,
+        _: &actions::CloseLightbox,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.close_lightbox(cx);
     }
 
-    pub fn on_minimize(
+    pub fn handle_minimize(
         &mut self,
         _: &actions::Minimize,
         window: &mut Window,
@@ -208,7 +246,7 @@ impl Gallery {
         window.minimize_window();
     }
 
-    pub fn on_zoom_in(&mut self, _: &actions::ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_zoom_in(&mut self, _: &actions::ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
         // Zoom the open image rather than the grid behind it
         if self.lightbox.is_some() {
             self.zoom_lightbox_in(cx);
@@ -218,7 +256,12 @@ impl Gallery {
         self.zoom_view_in(cx);
     }
 
-    pub fn on_zoom_out(&mut self, _: &actions::ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_zoom_out(
+        &mut self,
+        _: &actions::ZoomOut,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         // Zoom the open image rather than the grid behind it
         if self.lightbox.is_some() {
             self.zoom_lightbox_out(cx);
@@ -228,7 +271,7 @@ impl Gallery {
         self.zoom_view_out(cx);
     }
 
-    pub fn on_zoom_reset(
+    pub fn handle_zoom_reset(
         &mut self,
         _: &actions::ZoomReset,
         _: &mut Window,
@@ -242,11 +285,16 @@ impl Gallery {
         self.reset_view_zoom(cx);
     }
 
-    pub fn on_zoom_fill(&mut self, _: &actions::ZoomFill, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_zoom_fill(
+        &mut self,
+        _: &actions::ZoomFill,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.zoom_lightbox_fill(cx);
     }
 
-    pub fn on_copy_path_to_clipboard(
+    pub fn handle_copy_path_to_clipboard(
         &mut self,
         action: &actions::CopyPathToClipboard,
         _: &mut Window,
@@ -266,11 +314,16 @@ impl Gallery {
         }
     }
 
-    pub fn on_copy_image(&mut self, _: &actions::CopyImage, _: &mut Window, _: &mut Context<Self>) {
+    pub fn handle_copy_image(
+        &mut self,
+        _: &actions::CopyImage,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) {
         unimplemented!()
     }
 
-    pub fn on_trash_file(
+    pub fn handle_trash_file(
         &mut self,
         action: &actions::TrashFile,
         _: &mut Window,
@@ -286,7 +339,7 @@ impl Gallery {
         }
     }
 
-    pub fn on_delete_file(
+    pub fn handle_delete_file(
         &mut self,
         action: &actions::DeleteFile,
         window: &mut Window,
@@ -323,7 +376,7 @@ impl Gallery {
         });
     }
 
-    pub fn on_toggle_bookmark(
+    pub fn handle_toggle_bookmark(
         &mut self,
         action: &actions::Bookmark,
         _: &mut Window,
@@ -365,7 +418,7 @@ impl Gallery {
     }
 
     /// Reveal an image's source file in the system file manager
-    pub fn on_open_in_finder(
+    pub fn handle_open_in_finder(
         &mut self,
         action: &actions::OpenInFinder,
         _: &mut Window,
@@ -382,7 +435,7 @@ impl Gallery {
     }
 
     /// Jump to an image on the gallery page, expanding its group and scrolling to its row
-    pub fn on_reveal_in_gallery(
+    pub fn handle_reveal_in_gallery(
         &mut self,
         actions::RevealInGallery(hash): &actions::RevealInGallery,
         _: &mut Window,
@@ -414,7 +467,7 @@ impl Gallery {
         cx.notify();
     }
 
-    pub fn on_focus_search(
+    pub fn handle_focus_search(
         &mut self,
         _: &actions::FocusSearch,
         window: &mut Window,
@@ -423,7 +476,7 @@ impl Gallery {
         self.input_focus_handle.focus(window, cx);
     }
 
-    pub fn on_jump_to_top(
+    pub fn handle_jump_to_top(
         &mut self,
         _: &actions::JumpToTop,
         _: &mut Window,
@@ -432,7 +485,7 @@ impl Gallery {
         self.scroll_view(ScrollTarget::Start, cx);
     }
 
-    pub fn on_jump_to_bottom(
+    pub fn handle_jump_to_bottom(
         &mut self,
         _: &actions::JumpToBottom,
         _: &mut Window,
@@ -442,7 +495,12 @@ impl Gallery {
     }
 
     /// Cycle to the previous page, wrapping around
-    pub fn on_prev_page(&mut self, _: &actions::PrevPage, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_prev_page(
+        &mut self,
+        _: &actions::PrevPage,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let current_index = self.page.index();
         let total_pages = Page::ALL.len();
         let last_index = (current_index + total_pages - 1) % total_pages;
@@ -451,7 +509,12 @@ impl Gallery {
     }
 
     /// Cycle to the next page, wrapping around
-    pub fn on_next_page(&mut self, _: &actions::NextPage, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_next_page(
+        &mut self,
+        _: &actions::NextPage,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let current_index = self.page.index();
         let total_pages = Page::ALL.len();
         let next_index = (current_index + 1) % total_pages;
@@ -460,7 +523,7 @@ impl Gallery {
     }
 
     /// Collapse every group, or expand all if everything is already collapsed
-    pub fn on_toggle_collapse(
+    pub fn handle_toggle_collapse(
         &mut self,
         _: &actions::CollapseAll,
         _: &mut Window,

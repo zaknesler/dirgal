@@ -26,7 +26,16 @@ actions!([
     FocusSearch,
     JumpToTop,
     JumpToBottom,
+    SelectAll,
 ]);
+
+#[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
+pub enum ModifySelection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
 pub enum CopyImage {
@@ -117,6 +126,11 @@ pub fn register_actions(cx: &mut App) {
         ("right", actions::Right),
         ("secondary-up", actions::JumpToTop),
         ("secondary-down", actions::JumpToBottom),
+        ("secondary-a", actions::SelectAll),
+        ("shift-up", actions::ModifySelection::Up),
+        ("shift-down", actions::ModifySelection::Down),
+        ("shift-left", actions::ModifySelection::Left),
+        ("shift-right", actions::ModifySelection::Right),
         ("pageup", actions::JumpToTop),
         ("pagedown", actions::JumpToBottom),
         ("space", actions::OpenLightbox),

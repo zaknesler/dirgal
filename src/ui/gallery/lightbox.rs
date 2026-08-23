@@ -618,7 +618,7 @@ impl Gallery {
                             cx.stop_propagation();
 
                             if event.modifiers().secondary() {
-                                this.on_delete_file(&actions::DeleteFile::Current, window, cx);
+                                this.handle_delete_file(&actions::DeleteFile::Current, window, cx);
                             } else {
                                 this.delete_files(&[trash_path.to_owned()], cx);
                             }
