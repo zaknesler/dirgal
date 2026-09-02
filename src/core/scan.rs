@@ -65,7 +65,7 @@ impl ImageScanner {
         roots: &[PathBuf],
         thumb_dir: &std::path::Path,
     ) -> AppResult<pipeline::DiscoveredImages> {
-        let files = pipeline::collect_files(roots)?;
-        pipeline::build_image_entries(files, thumb_dir)
+        let collected = pipeline::collect_files(roots)?;
+        pipeline::build_image_entries(collected, thumb_dir)
     }
 }
