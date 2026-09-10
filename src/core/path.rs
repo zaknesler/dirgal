@@ -2,14 +2,14 @@ use crate::error::AppResult;
 use gpui::SharedString;
 use std::path::{Path, PathBuf};
 
-/// Expand all root directories for the given paths
+/// Expand all roots to absolute paths (without reading the filesystem)
 pub fn get_roots(paths: Option<Vec<String>>) -> Vec<PathBuf> {
     paths
         .unwrap_or_else(|| vec![".".to_string()])
         .into_iter()
         .map(|path| {
             let path = PathBuf::from(path);
-            std::fs::canonicalize(&path).unwrap_or(path)
+            std::path::absolute(&path).unwrap_or(path)
         })
         .collect()
 }

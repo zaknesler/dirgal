@@ -2,7 +2,7 @@ use crate::{
     core::{
         hash::{hash_content, hash_path},
         image::{self, ContentHash, FoundFile, ImageEntry, SMALL_FILE_BYTES},
-        store::{HashCacheEntry, Store},
+        store::{CachedImage, Store},
     },
     error::AppResult,
 };
@@ -176,25 +176,6 @@ pub fn build_image_entries(
         files: found,
         roots,
     } = collected;
-    for scan in roots {
-        match scan.result {
-            ScanResult::Complete => {
-                tracing::debug!(
-                    root = %scan.root.display(),
-                    images = scan.image_paths.len(),
-                    "root scan completed"
-                );
-            }
-            ScanResult::Incomplete { errors } => {
-                tracing::debug!(
-                    root = %scan.root.display(),
-                    images = scan.image_paths.len(),
-                    errors,
-                    "root scan incomplete"
-                );
-            }
-        }
-    }
 
     let bar = ProgressBar::new(found.len() as u64);
     bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
@@ -207,6 +188,26 @@ pub fn build_image_entries(
     bar.set_message(format!("hashing {} image(s)", found.len()));
 
     let mut store = Store::load();
+    for scan in roots {
+        match scan.result {
+            ScanResult::Complete => {
+                tracing::debug!(
+                    root = %scan.root.display(),
+                    images = scan.image_paths.len(),
+                    "saving root listing"
+                );
+                store.replace_root_listing(scan.root, scan.image_paths);
+            }
+            ScanResult::Incomplete { errors } => {
+                tracing::debug!(
+                    root = %scan.root.display(),
+                    images = scan.image_paths.len(),
+                    errors,
+                    "retaining previous root listing"
+                );
+            }
+        }
+    }
 
     let images = found
         .into_par_iter()
@@ -221,23 +222,19 @@ pub fn build_image_entries(
 
     let entries = images
         .iter()
-        .filter_map(|i| {
-            let modified = i.modified?;
-            let mtime = modified
-                .duration_since(std::time::UNIX_EPOCH)
-                .ok()?
-                .as_secs();
-            Some((
+        .map(|i| {
+            (
                 i.id.to_path_buf(),
-                HashCacheEntry {
+                CachedImage {
                     size: i.bytes,
-                    mtime,
+                    modified: i.modified.and_then(to_epoch_secs),
+                    created: i.created.and_then(to_epoch_secs),
                     hash: i.content_hash.0,
                     dimensions: i.dimensions,
                 },
-            ))
+            )
         })
-        .collect::<HashMap<PathBuf, HashCacheEntry>>();
+        .collect::<HashMap<PathBuf, CachedImage>>();
 
     store.merge_entries(entries);
 
@@ -266,6 +263,12 @@ fn resolve_meta(file: &FoundFile, store: &Store) -> (u64, Option<(u32, u32)>) {
     let dimensions = image::read_dimensions(&file.path);
 
     (hash, dimensions)
+}
+
+fn to_epoch_secs(time: std::time::SystemTime) -> Option<u64> {
+    time.duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs())
 }
 
 /// Generate thumbnails for the given images
