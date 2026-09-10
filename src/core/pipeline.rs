@@ -188,6 +188,7 @@ pub fn build_image_entries(
     bar.set_message(format!("hashing {} image(s)", found.len()));
 
     let mut store = Store::load();
+    let mut retained = Vec::new();
     for scan in roots {
         match scan.result {
             ScanResult::Complete => {
@@ -205,11 +206,14 @@ pub fn build_image_entries(
                     errors,
                     "retaining previous root listing"
                 );
+                if let Some(images) = store.cached_images(std::slice::from_ref(&scan.root)) {
+                    retained.extend(images);
+                }
             }
         }
     }
 
-    let images = found
+    let mut images = found
         .into_par_iter()
         .progress_with(bar.clone())
         .map(|f| {
@@ -219,6 +223,30 @@ pub fn build_image_entries(
         .collect::<Vec<ImageEntry>>();
 
     bar.finish_with_message(format!("hashed {} image(s)", images.len()));
+
+    let mut seen = images
+        .iter()
+        .map(|image| image.id.to_path_buf())
+        .collect::<HashSet<_>>();
+    for (path, cached) in retained {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+
+        let found = FoundFile {
+            path,
+            bytes: cached.size,
+            modified: cached.modified_time(),
+            created: cached.created_time(),
+        };
+        images.push(ImageEntry::new(
+            found,
+            thumb_dir,
+            ContentHash(cached.hash),
+            cached.dimensions,
+        ));
+    }
+    images.sort_by(|a, b| crate::core::path::compare_paths(a.id.path(), b.id.path()));
 
     let entries = images
         .iter()

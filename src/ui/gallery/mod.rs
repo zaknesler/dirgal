@@ -1,6 +1,7 @@
 use crate::core::{
     config::Settings,
     image::{ContentHash, ImageEntry, ImageId, SMALL_FILE_BYTES},
+    scan::ScanSource,
     store::Store,
 };
 use crate::ui::{model::*, *};
@@ -41,6 +42,7 @@ pub struct Gallery {
     filtered_images: Vec<ImageId>,
     active_image: Option<ImageId>,
     selected_images: Vec<ImageId>,
+    is_refreshing: bool,
 
     // Views
     grid_view: Entity<GridView>,
@@ -61,6 +63,7 @@ impl Gallery {
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state::SharedAppState::from_app(cx).entity().clone();
+        let refresh_on_start = state.read(cx).scanner.source == ScanSource::Cache;
 
         cx.observe(&state, |this, _, cx| {
             this.reflow(cx);
@@ -135,6 +138,7 @@ impl Gallery {
             list_view,
             active_image: None,
             selected_images: Vec::new(),
+            is_refreshing: false,
             thumbs: HashMap::new(),
             queue: VecDeque::new(),
             num_running: 0,
@@ -142,6 +146,10 @@ impl Gallery {
         };
 
         this.reload_from_state(cx);
+        if refresh_on_start {
+            this.refresh_library(cx);
+        }
+
         this
     }
 
@@ -539,7 +547,14 @@ impl Gallery {
 
     /// Refresh the library in the background
     fn refresh_library(&mut self, cx: &mut Context<Self>) {
+        if self.is_refreshing {
+            tracing::debug!("refresh already in progress");
+            return;
+        }
+        self.is_refreshing = true;
+
         let state = self.state.clone();
+        tracing::debug!("refresh started");
 
         cx.spawn(async move |this, cx| {
             let mut scanner = state.read_with(cx, |state, _| state.scanner.clone());
@@ -563,10 +578,18 @@ impl Gallery {
                     });
 
                     // Reload the gallery from the updated state
-                    this.update(cx, |gallery, cx| gallery.reload_from_state(cx))
-                        .ok();
+                    this.update(cx, |gallery, cx| {
+                        gallery.is_refreshing = false;
+                        gallery.reload_from_state(cx);
+                        tracing::debug!("refresh completed");
+                    })
+                    .ok();
                 }
                 Err(err) => {
+                    this.update(cx, |gallery, _| {
+                        gallery.is_refreshing = false;
+                    })
+                    .ok();
                     tracing::warn!(error = %err, "refresh failed");
                 }
             }
