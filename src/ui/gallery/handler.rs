@@ -11,12 +11,12 @@ use crate::{
     },
     ui::gallery::Gallery,
 };
-use gpui::{Context, Entity, Window};
-use gpui_component::WindowExt;
-use gpui_component::{
+use gpui_kit::component::WindowExt;
+use gpui_kit::component::{
     input::{InputEvent, InputState},
     select::{SelectEvent, SelectState},
 };
+use gpui_kit::gpui::{Context, Entity, Window};
 use std::path::Path;
 
 impl Gallery {

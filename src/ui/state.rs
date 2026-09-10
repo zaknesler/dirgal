@@ -1,4 +1,4 @@
-use gpui::AppContext as _;
+use gpui_kit::gpui::AppContext as _;
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -6,23 +6,23 @@ pub struct AppState {
     pub scanner: crate::core::scan::ImageScanner,
 }
 
-impl gpui::EventEmitter<()> for AppState {}
+impl gpui_kit::gpui::EventEmitter<()> for AppState {}
 
 #[derive(Clone)]
-pub struct SharedAppState(pub gpui::Entity<AppState>);
+pub struct SharedAppState(pub gpui_kit::gpui::Entity<AppState>);
 
-impl gpui::Global for SharedAppState {}
+impl gpui_kit::gpui::Global for SharedAppState {}
 
 impl SharedAppState {
-    pub fn new(initial_state: AppState, cx: &mut gpui::App) -> Self {
+    pub fn new(initial_state: AppState, cx: &mut gpui_kit::gpui::App) -> Self {
         Self(cx.new(|_| initial_state))
     }
 
-    pub fn from_app(cx: &mut gpui::App) -> Self {
+    pub fn from_app(cx: &mut gpui_kit::gpui::App) -> Self {
         cx.global::<Self>().clone()
     }
 
-    pub fn entity(&self) -> &gpui::Entity<AppState> {
+    pub fn entity(&self) -> &gpui_kit::gpui::Entity<AppState> {
         &self.0
     }
 }

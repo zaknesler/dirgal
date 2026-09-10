@@ -2,7 +2,7 @@ use crate::{
     core::{
         hash::{hash_content, hash_path},
         image::{self, ContentHash, FoundFile, ImageEntry, SMALL_FILE_BYTES},
-        store::{HashCacheEntry, Store},
+        store::{CachedImage, Store},
     },
     error::AppResult,
 };
@@ -23,8 +23,26 @@ pub struct DiscoveredImages {
     pub bookmarks: Vec<u64>,
 }
 
-/// Recursively scan the given roots for image files, reporting progress as directories are visited and images discovered
-pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
+#[derive(Debug)]
+pub struct ScannedRoot {
+    pub root: PathBuf,
+    pub image_paths: Vec<PathBuf>,
+    pub result: ScanResult,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ScanResult {
+    Complete,
+    Incomplete { errors: usize },
+}
+
+pub struct CollectedFiles {
+    pub files: Vec<FoundFile>,
+    pub roots: Vec<ScannedRoot>,
+}
+
+/// Recursively scan the given roots for image files and report whether each root was fully read
+pub fn collect_files(roots: &[PathBuf]) -> AppResult<CollectedFiles> {
     let bar = ProgressBar::new_spinner();
     bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
     bar.set_style(ProgressStyle::with_template(
@@ -33,16 +51,55 @@ pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
 
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut found: Vec<FoundFile> = Vec::new();
+    let mut scanned_roots = Vec::with_capacity(roots.len());
     let mut dirs: u64 = 0;
 
     for root in roots {
-        if !root.is_dir() {
-            tracing::warn!(root = %root.display(), "not a directory, skipping");
+        let is_dir = match std::fs::metadata(root) {
+            Ok(metadata) => metadata.is_dir(),
+            Err(error) => {
+                tracing::warn!(root = %root.display(), %error, "could not read root, skipping");
+                scanned_roots.push(ScannedRoot {
+                    root: root.clone(),
+                    image_paths: Vec::new(),
+                    result: ScanResult::Incomplete { errors: 1 },
+                });
+                continue;
+            }
+        };
+
+        if !is_dir {
+            tracing::warn!(root = %root.display(), "root is not a directory, skipping");
+            scanned_roots.push(ScannedRoot {
+                root: root.clone(),
+                image_paths: Vec::new(),
+                result: ScanResult::Incomplete { errors: 1 },
+            });
             continue;
         }
 
-        for entry in image::build_root_walker(root).flatten() {
+        let mut root_seen: HashSet<PathBuf> = HashSet::new();
+        let mut image_paths = Vec::new();
+        let mut errors = 0;
+
+        // Visit each entry in the root
+        for result in image::build_root_walker(root) {
+            let entry = match result {
+                Ok(entry) => entry,
+                Err(error) => {
+                    errors += 1;
+                    tracing::warn!(root = %root.display(), %error, "could not read path while scanning root");
+                    continue;
+                }
+            };
+
             let Some(file_type) = entry.file_type() else {
+                errors += 1;
+                tracing::warn!(
+                    root = %root.display(),
+                    path = %entry.path().display(),
+                    "could not read file type while scanning root"
+                );
                 continue;
             };
 
@@ -55,10 +112,16 @@ pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
                 continue;
             }
 
-            if file_type.is_file()
-                && image::is_image(entry.path())
-                && seen.insert(entry.path().to_path_buf())
-            {
+            if file_type.is_file() && image::is_image(entry.path()) {
+                let path = entry.path().to_path_buf();
+                if root_seen.insert(path.clone()) {
+                    image_paths.push(path.clone());
+                }
+
+                if !seen.insert(path) {
+                    continue;
+                }
+
                 let (bytes, modified, created) = image::entry_stats(&entry);
                 found.push(FoundFile {
                     path: entry.into_path(),
@@ -72,24 +135,48 @@ pub fn collect_files(roots: &[PathBuf]) -> AppResult<Vec<FoundFile>> {
                 ));
             }
         }
+
+        image_paths.sort_by(|a, b| crate::core::path::compare_paths(a, b));
+        let result = if errors == 0 {
+            ScanResult::Complete
+        } else {
+            ScanResult::Incomplete { errors }
+        };
+        scanned_roots.push(ScannedRoot {
+            root: root.clone(),
+            image_paths,
+            result,
+        });
     }
 
+    let incomplete = scanned_roots
+        .iter()
+        .filter(|scan| matches!(scan.result, ScanResult::Incomplete { .. }))
+        .count();
     bar.finish_with_message(format!(
-        "scanned {dirs} dir(s), found {} image(s)",
-        found.len()
+        "scanned {dirs} dir(s), found {} image(s), {incomplete} incomplete root(s)",
+        found.len(),
     ));
 
     found.sort_by(|a, b| crate::core::path::compare_paths(&a.path, &b.path));
 
-    Ok(found)
+    Ok(CollectedFiles {
+        files: found,
+        roots: scanned_roots,
+    })
 }
 
 /// Build image entries from found files, reusing cached content hashes where the file's
 /// size and modified time still match, and persisting any newly-computed hashes back to disk
 pub fn build_image_entries(
-    found: Vec<FoundFile>,
+    collected: CollectedFiles,
     thumb_dir: &std::path::Path,
 ) -> AppResult<DiscoveredImages> {
+    let CollectedFiles {
+        files: found,
+        roots,
+    } = collected;
+
     let bar = ProgressBar::new(found.len() as u64);
     bar.enable_steady_tick(Duration::from_millis(UPDATE_DURATION_MS));
     bar.set_style(
@@ -101,8 +188,32 @@ pub fn build_image_entries(
     bar.set_message(format!("hashing {} image(s)", found.len()));
 
     let mut store = Store::load();
+    let mut retained = Vec::new();
+    for scan in roots {
+        match scan.result {
+            ScanResult::Complete => {
+                tracing::debug!(
+                    root = %scan.root.display(),
+                    images = scan.image_paths.len(),
+                    "saving root listing"
+                );
+                store.replace_root_listing(scan.root, scan.image_paths);
+            }
+            ScanResult::Incomplete { errors } => {
+                tracing::debug!(
+                    root = %scan.root.display(),
+                    images = scan.image_paths.len(),
+                    errors,
+                    "retaining previous root listing"
+                );
+                if let Some(images) = store.cached_images(std::slice::from_ref(&scan.root)) {
+                    retained.extend(images);
+                }
+            }
+        }
+    }
 
-    let images = found
+    let mut images = found
         .into_par_iter()
         .progress_with(bar.clone())
         .map(|f| {
@@ -113,25 +224,45 @@ pub fn build_image_entries(
 
     bar.finish_with_message(format!("hashed {} image(s)", images.len()));
 
+    let mut seen = images
+        .iter()
+        .map(|image| image.id.to_path_buf())
+        .collect::<HashSet<_>>();
+    for (path, cached) in retained {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+
+        let found = FoundFile {
+            path,
+            bytes: cached.size,
+            modified: cached.modified_time(),
+            created: cached.created_time(),
+        };
+        images.push(ImageEntry::new(
+            found,
+            thumb_dir,
+            ContentHash(cached.hash),
+            cached.dimensions,
+        ));
+    }
+    images.sort_by(|a, b| crate::core::path::compare_paths(a.id.path(), b.id.path()));
+
     let entries = images
         .iter()
-        .filter_map(|i| {
-            let modified = i.modified?;
-            let mtime = modified
-                .duration_since(std::time::UNIX_EPOCH)
-                .ok()?
-                .as_secs();
-            Some((
+        .map(|i| {
+            (
                 i.id.to_path_buf(),
-                HashCacheEntry {
+                CachedImage {
                     size: i.bytes,
-                    mtime,
+                    modified: i.modified.and_then(to_epoch_secs),
+                    created: i.created.and_then(to_epoch_secs),
                     hash: i.content_hash.0,
                     dimensions: i.dimensions,
                 },
-            ))
+            )
         })
-        .collect::<HashMap<PathBuf, HashCacheEntry>>();
+        .collect::<HashMap<PathBuf, CachedImage>>();
 
     store.merge_entries(entries);
 
@@ -160,6 +291,12 @@ fn resolve_meta(file: &FoundFile, store: &Store) -> (u64, Option<(u32, u32)>) {
     let dimensions = image::read_dimensions(&file.path);
 
     (hash, dimensions)
+}
+
+fn to_epoch_secs(time: std::time::SystemTime) -> Option<u64> {
+    time.duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs())
 }
 
 /// Generate thumbnails for the given images

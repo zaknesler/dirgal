@@ -1,9 +1,9 @@
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 const PROJECT_DIR: &str = "dirgal";
@@ -11,21 +11,28 @@ const CACHE_FILE_NAME: &str = "cache";
 const BOOKMARKS_FILE_NAME: &str = "bookmarks";
 
 // Use separate versions for the cache and bookmarks files
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
 const BOOKMARKS_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct HashCacheEntry {
+pub struct CachedImage {
     pub size: u64,
-    pub mtime: u64,
+    pub modified: Option<u64>,
+    pub created: Option<u64>,
     pub hash: u64,
     pub dimensions: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RootListing {
+    image_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct CacheFile {
     version: u32,
-    entries: HashMap<PathBuf, HashCacheEntry>,
+    entries: HashMap<PathBuf, CachedImage>,
+    roots: HashMap<PathBuf, RootListing>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -36,15 +43,30 @@ struct BookmarksFile {
 
 #[derive(Debug, Default)]
 pub struct Store {
-    cache: HashMap<PathBuf, HashCacheEntry>,
+    cache: HashMap<PathBuf, CachedImage>,
+    roots: HashMap<PathBuf, RootListing>,
     pub bookmarks: Vec<u64>,
 }
 
 impl Store {
     /// Load the cache and bookmarks files
     pub fn load() -> Self {
+        let cache = Self::load_cache();
+        let cached_paths = cache
+            .roots
+            .values()
+            .map(|listing| listing.image_paths.len())
+            .sum::<usize>();
+        tracing::debug!(
+            images = cache.entries.len(),
+            roots = cache.roots.len(),
+            paths = cached_paths,
+            "loaded cache"
+        );
+
         Self {
-            cache: Self::load_cache(),
+            cache: cache.entries,
+            roots: cache.roots,
             bookmarks: Self::load_bookmarks(),
         }
     }
@@ -55,16 +77,38 @@ impl Store {
         path: &Path,
         size: u64,
         modified: Option<SystemTime>,
-    ) -> Option<&HashCacheEntry> {
+    ) -> Option<&CachedImage> {
         let mtime = to_epoch_secs(modified?)?;
         let entry = self.cache.get(path)?;
 
-        (entry.size == size && entry.mtime == mtime).then_some(entry)
+        (entry.size == size && entry.modified == Some(mtime)).then_some(entry)
+    }
+
+    /// Load the cached images for every requested root, returning `None` if any data is missing
+    pub fn cached_images(&self, roots: &[PathBuf]) -> Option<Vec<(PathBuf, CachedImage)>> {
+        let mut seen = HashSet::new();
+        let mut images = Vec::new();
+
+        for root in roots {
+            let listing = self.roots.get(root)?;
+            for path in &listing.image_paths {
+                if seen.insert(path) {
+                    images.push((path.clone(), *self.cache.get(path)?));
+                }
+            }
+        }
+
+        Some(images)
     }
 
     /// Merge newly-computed entries in, overwriting any existing entry at the same path
-    pub fn merge_entries(&mut self, entries: HashMap<PathBuf, HashCacheEntry>) {
+    pub fn merge_entries(&mut self, entries: HashMap<PathBuf, CachedImage>) {
         self.cache.extend(entries);
+    }
+
+    /// Replace the last complete listing for a root
+    pub fn replace_root_listing(&mut self, root: PathBuf, image_paths: Vec<PathBuf>) {
+        self.roots.insert(root, RootListing { image_paths });
     }
 
     /// Write the cache entries back out to disk
@@ -72,6 +116,7 @@ impl Store {
         let file = CacheFile {
             version: CACHE_VERSION,
             entries: self.cache.clone(),
+            roots: self.roots.clone(),
         };
 
         write_file(Self::cache_path()?, &file)
@@ -93,25 +138,25 @@ impl Store {
     }
 
     /// Load the cache file, defaulting to empty if it doesn't exist
-    fn load_cache() -> HashMap<PathBuf, HashCacheEntry> {
+    fn load_cache() -> CacheFile {
         let Ok(path) = Self::cache_path() else {
-            return HashMap::new();
+            return CacheFile::default();
         };
 
         let Ok(bytes) = std::fs::read(&path) else {
-            return HashMap::new();
+            return CacheFile::default();
         };
 
         let Ok(file) = postcard::from_bytes::<CacheFile>(&bytes) else {
             tracing::warn!(path = %path.display(), "failed to decode cache file, ignoring");
-            return HashMap::new();
+            return CacheFile::default();
         };
 
         if file.version != CACHE_VERSION {
-            return HashMap::new();
+            return CacheFile::default();
         }
 
-        file.entries
+        file
     }
 
     fn load_bookmarks() -> Vec<u64> {
@@ -150,6 +195,16 @@ impl Store {
     }
 }
 
+impl CachedImage {
+    pub fn modified_time(self) -> Option<SystemTime> {
+        from_epoch_secs(self.modified)
+    }
+
+    pub fn created_time(self) -> Option<SystemTime> {
+        from_epoch_secs(self.created)
+    }
+}
+
 fn write_file<T: Serialize>(path: PathBuf, value: &T) -> AppResult<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -166,4 +221,8 @@ fn write_file<T: Serialize>(path: PathBuf, value: &T) -> AppResult<()> {
 
 fn to_epoch_secs(time: SystemTime) -> Option<u64> {
     time.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
+}
+
+fn from_epoch_secs(seconds: Option<u64>) -> Option<SystemTime> {
+    UNIX_EPOCH.checked_add(Duration::from_secs(seconds?))
 }

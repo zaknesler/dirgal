@@ -6,11 +6,11 @@ use crate::{
         constant::{GRID_CACHE_ITEMS, GRID_OUTER_MARGIN, TRUNCATE_STR},
     },
 };
-use gpui::{
+use gpui_kit::component::{ActiveTheme, InteractiveElementExt, h_flex, scroll::Scrollbar, v_flex};
+use gpui_kit::gpui::{
     ClickEvent, Context, EventEmitter, Render, ScrollStrategy, SharedString,
     UniformListScrollHandle, WeakEntity, Window, div, prelude::*, px, uniform_list,
 };
-use gpui_component::{ActiveTheme, InteractiveElementExt, h_flex, scroll::Scrollbar, v_flex};
 use std::ops::Range;
 
 const DEFAULT_THUMBNAIL_SIZE: f32 = 80.0;
@@ -135,9 +135,11 @@ impl Render for ListView {
                                             .justify_center()
                                             .flex_1()
                                             .overflow_hidden()
-                                            .text_overflow(gpui::TextOverflow::TruncateMiddle(
-                                                SharedString::new_static(TRUNCATE_STR),
-                                            ))
+                                            .text_overflow(
+                                                gpui_kit::gpui::TextOverflow::TruncateMiddle(
+                                                    SharedString::new_static(TRUNCATE_STR),
+                                                ),
+                                            )
                                             .child(path.to_string_lossy().to_string()),
                                     ),
                             );

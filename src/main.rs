@@ -29,7 +29,17 @@ fn main() -> error::AppResult<()> {
         return Ok(());
     }
 
-    let scanner = ImageScanner::scan(roots, thumb_dir)?;
+    let scanner = if args.generate_thumbs {
+        ImageScanner::scan(roots, thumb_dir)?
+    } else {
+        match ImageScanner::from_cache(roots.clone(), thumb_dir.clone()) {
+            Some(scanner) => {
+                tracing::info!(images = scanner.images.len(), "loaded gallery from cache");
+                scanner
+            }
+            None => ImageScanner::scan(roots, thumb_dir)?,
+        }
+    };
 
     if args.generate_thumbs {
         scanner.generate_thumbnails()?;

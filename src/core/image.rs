@@ -1,7 +1,7 @@
 use crate::core::path::compare_paths;
 use crate::error::AppResult;
 use crate::ui::model::{Sort, SortKey};
-use gpui::Img;
+use gpui_kit::gpui::Img;
 use humansize::{BINARY, FormatSizeOptions, format_size};
 use ignore::WalkBuilder;
 use std::collections::HashMap;

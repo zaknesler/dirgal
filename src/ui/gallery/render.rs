@@ -1,7 +1,6 @@
 use crate::ui::{gallery::Gallery, model::*, *};
 use crate::{assets::IconAsset, core::util};
-use gpui::{App, ClickEvent, Context, FocusHandle, Focusable, Window, div, prelude::*, px};
-use gpui_component::{
+use gpui_kit::component::{
     ActiveTheme, Icon, Root,
     button::{Button, ButtonVariants as _, Toggle, ToggleGroup, ToggleVariants},
     h_flex,
@@ -9,6 +8,9 @@ use gpui_component::{
     select::Select,
     tab::{Tab, TabBar},
     v_flex,
+};
+use gpui_kit::gpui::{
+    App, ClickEvent, Context, FocusHandle, Focusable, Window, div, prelude::*, px,
 };
 
 impl Gallery {

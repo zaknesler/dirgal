@@ -10,18 +10,18 @@ use crate::core::{
 use crate::ui::actions;
 use crate::ui::gallery::Gallery;
 use crate::ui::{gallery::constant::*, model::*};
-use gpui::{
-    Bounds, ClickEvent, Context, DevicePixels, DispatchPhase, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, ScrollWheelEvent,
-    SharedString, Size, Window, canvas, div, img, point, prelude::*, px, size,
-};
-use gpui_component::{
+use gpui_kit::component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::ContextMenuExt,
     tag::Tag,
     v_flex,
+};
+use gpui_kit::gpui::{
+    Bounds, ClickEvent, Context, DevicePixels, DispatchPhase, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, ScrollWheelEvent,
+    SharedString, Size, Window, canvas, div, img, point, prelude::*, px, size,
 };
 
 pub struct Lightbox {
@@ -519,7 +519,7 @@ impl Gallery {
             .inset_0()
             .items_center()
             .justify_center()
-            .bg(gpui::rgba(COLOR_BACKDROP))
+            .bg(gpui_kit::gpui::rgba(COLOR_BACKDROP))
             .occlude()
             .on_click(cx.listener(|this, _, _, cx| {
                 cx.stop_propagation();
@@ -557,7 +557,7 @@ impl Gallery {
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_sm()
-                .text_overflow(gpui::TextOverflow::TruncateMiddle(
+                .text_overflow(gpui_kit::gpui::TextOverflow::TruncateMiddle(
                     SharedString::new_static(TRUNCATE_STR),
                 ))
                 .child(name)

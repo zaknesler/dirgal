@@ -16,11 +16,7 @@ use crate::{
         library::Library,
     },
 };
-use gpui::{
-    AnyElement, Context, Entity, EventEmitter, ListAlignment, ListOffset, ListState, Pixels,
-    Render, WeakEntity, Window, div, prelude::*, px,
-};
-use gpui_component::{
+use gpui_kit::component::{
     ActiveTheme, Sizable as _, VirtualListScrollHandle,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _},
@@ -28,6 +24,10 @@ use gpui_component::{
     scroll::{ScrollableElement, ScrollbarAxis},
     tag::Tag,
     v_virtual_list,
+};
+use gpui_kit::gpui::{
+    AnyElement, Context, Entity, EventEmitter, ListAlignment, ListOffset, ListState, Pixels,
+    Render, WeakEntity, Window, div, prelude::*, px,
 };
 use std::{
     collections::HashSet,
@@ -344,7 +344,7 @@ impl GroupedView {
                     .items_center()
                     .flex_none()
                     .text_sm()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
                     .child(Breadcrumb::new().children(segments)),
             )
             .child(
@@ -400,10 +400,10 @@ impl Render for GroupedView {
             .rows
             .iter()
             .map(|row| match row {
-                Row::Header(_) => gpui::Size::new(px(48.), px(48.)),
+                Row::Header(_) => gpui_kit::gpui::Size::new(px(48.), px(48.)),
                 Row::Tiles(_) => {
                     let size = self.tile_size + GRID_GAP;
-                    gpui::size(px(size), px(size))
+                    gpui_kit::gpui::size(px(size), px(size))
                 }
             })
             .collect::<Vec<_>>();
