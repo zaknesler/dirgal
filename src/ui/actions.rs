@@ -1,5 +1,5 @@
 use crate::ui::{CONTEXT_GALLERY, CONTEXT_GALLERY_UNFOCUSED, actions};
-use gpui::{Action, App, KeyBinding, actions};
+use gpui_kit::gpui::{Action, App, KeyBinding, actions};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;

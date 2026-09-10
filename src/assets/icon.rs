@@ -66,7 +66,7 @@ impl IconAsset {
     }
 }
 
-impl From<IconAsset> for gpui_component::Icon {
+impl From<IconAsset> for gpui_kit::component::Icon {
     fn from(value: IconAsset) -> Self {
         Self::default().path(value.path())
     }

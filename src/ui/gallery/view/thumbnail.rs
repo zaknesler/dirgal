@@ -15,13 +15,13 @@ use crate::{
         model::{Page, ThumbnailFit},
     },
 };
-use gpui::{
-    AnyElement, ClickEvent, Context, Entity, EventEmitter, ObjectFit, div, img, prelude::*, px,
-    rems,
-};
-use gpui_component::{
+use gpui_kit::component::{
     ActiveTheme, InteractiveElementExt, Sizable as _, menu::ContextMenuExt, skeleton::Skeleton,
     spinner::Spinner, v_flex,
+};
+use gpui_kit::gpui::{
+    AnyElement, ClickEvent, Context, Entity, EventEmitter, ObjectFit, div, img, prelude::*, px,
+    rems,
 };
 use std::path::Path;
 
@@ -100,15 +100,17 @@ impl ImageTile {
             .aspect_square()
             .relative()
             .border_3()
-            .border_color(gpui::transparent_black())
+            .border_color(gpui_kit::gpui::transparent_black())
             .hover(|el| {
                 if is_selected {
-                    el.border_color(gpui::rgb(COLOR_ACCENT_HOVER))
+                    el.border_color(gpui_kit::gpui::rgb(COLOR_ACCENT_HOVER))
                 } else {
-                    el.border_color(gpui::white())
+                    el.border_color(gpui_kit::gpui::white())
                 }
             })
-            .when(is_selected, |el| el.border_color(gpui::rgb(COLOR_ACCENT)))
+            .when(is_selected, |el| {
+                el.border_color(gpui_kit::gpui::rgb(COLOR_ACCENT))
+            })
             .cursor_pointer()
             .on_click(cx.listener(move |_, event: &ClickEvent, _, cx| {
                 cx.stop_propagation();
@@ -144,12 +146,12 @@ impl ImageTile {
 
     /// Build the image context menu
     pub(crate) fn context_menu(
-        menu: gpui_component::menu::PopupMenu,
+        menu: gpui_kit::component::menu::PopupMenu,
         content_hash: ContentHash,
         is_bookmarked: bool,
         page: Page,
         src_path: &Path,
-    ) -> gpui_component::menu::PopupMenu {
+    ) -> gpui_kit::component::menu::PopupMenu {
         menu.menu_with_icon_and_disabled(
             "Copy",
             IconAsset::ClipboardCopy,

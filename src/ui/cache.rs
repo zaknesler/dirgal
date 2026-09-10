@@ -1,7 +1,7 @@
 // Copied from: https://github.com/zed-industries/zed/blob/6b733d105896a20924bd4aba87bd7baa20b62ac6/crates/gpui/examples/image_gallery.rs#L134
 
 use futures::FutureExt;
-use gpui::{
+use gpui_kit::gpui::{
     App, AppContext as _, Asset as _, AssetLogger, Context, ElementId, Entity, ImageAssetLoader,
     ImageCache, ImageCacheProvider, Window, hash,
 };
@@ -20,7 +20,7 @@ pub struct SimpleLruCacheProvider {
 }
 
 impl ImageCacheProvider for SimpleLruCacheProvider {
-    fn provide(&mut self, window: &mut Window, cx: &mut App) -> gpui::AnyImageCache {
+    fn provide(&mut self, window: &mut Window, cx: &mut App) -> gpui_kit::gpui::AnyImageCache {
         let id = self.id.clone();
         let max_items = self.max_items;
 
@@ -47,7 +47,7 @@ pub struct SimpleLruCache {
     id: ElementId,
     max_items: usize,
     usages: Vec<u64>,
-    cache: HashMap<u64, gpui::ImageCacheItem>,
+    cache: HashMap<u64, gpui_kit::gpui::ImageCacheItem>,
 }
 
 impl SimpleLruCache {
@@ -79,10 +79,10 @@ impl SimpleLruCache {
 impl ImageCache for SimpleLruCache {
     fn load(
         &mut self,
-        resource: &gpui::Resource,
+        resource: &gpui_kit::gpui::Resource,
         window: &mut Window,
         cx: &mut App,
-    ) -> Option<Result<Arc<gpui::RenderImage>, gpui::ImageCacheError>> {
+    ) -> Option<Result<Arc<gpui_kit::gpui::RenderImage>, gpui_kit::gpui::ImageCacheError>> {
         assert_eq!(self.usages.len(), self.cache.len());
         assert!(self.cache.len() <= self.max_items);
 
@@ -121,7 +121,7 @@ impl ImageCache for SimpleLruCache {
             }
         }
         self.cache
-            .insert(hash, gpui::ImageCacheItem::Loading(task.clone()));
+            .insert(hash, gpui_kit::gpui::ImageCacheItem::Loading(task.clone()));
         self.usages.insert(0, hash);
 
         tracing::trace!(cache = %self.id, hash, size = self.cache.len(), "insert");

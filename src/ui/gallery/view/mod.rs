@@ -4,7 +4,7 @@ pub mod list;
 pub(crate) mod thumbnail;
 
 use crate::core::image::ImageId;
-use gpui::Modifiers;
+use gpui_kit::gpui::Modifiers;
 pub use grid::GridView;
 pub use grouped::{GroupHash, GroupedView};
 pub use list::ListView;

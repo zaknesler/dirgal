@@ -5,8 +5,10 @@ use crate::core::{
     store::Store,
 };
 use crate::ui::{model::*, *};
-use gpui::{App, ClipboardItem, Context, Entity, FocusHandle, Focusable, Window, prelude::*};
-use gpui_component::{IndexPath, input::InputState, select::SelectState};
+use gpui_kit::component::{IndexPath, input::InputState, select::SelectState};
+use gpui_kit::gpui::{
+    App, ClipboardItem, Context, Entity, FocusHandle, Focusable, Window, prelude::*,
+};
 use library::Library;
 use lightbox::Lightbox;
 use std::path::Path;

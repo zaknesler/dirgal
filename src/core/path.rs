@@ -1,5 +1,5 @@
 use crate::error::AppResult;
-use gpui::SharedString;
+use gpui_kit::gpui::SharedString;
 use std::path::{Path, PathBuf};
 
 /// Expand all roots to absolute paths (without reading the filesystem)

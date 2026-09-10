@@ -2,14 +2,14 @@ use crate::ui::{
     gallery::Gallery,
     state::{AppState, SharedAppState},
 };
-use gpui::{App, AppContext as _, TitlebarOptions, WindowOptions, px, size};
-use gpui_component::{Theme, ThemeMode};
+use gpui_kit::component::{Theme, ThemeMode};
+use gpui_kit::gpui::{App, AppContext as _, TitlebarOptions, WindowOptions, px, size};
 
 pub fn create_window(state: AppState) {
-    gpui_platform::application()
+    gpui_kit::application()
         .with_assets(crate::assets::Assets)
         .run(move |cx: &mut App| {
-            gpui_component::init(cx);
+            gpui_kit::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
 
             super::actions::register_actions(cx);
@@ -38,7 +38,7 @@ pub fn create_window(state: AppState) {
 
             cx.open_window(options, move |window, cx| {
                 let view = Gallery::view(window, cx);
-                cx.new(|cx| gpui_component::Root::new(view, window, cx))
+                cx.new(|cx| gpui_kit::component::Root::new(view, window, cx))
             })
             .expect("failed to open window");
 
