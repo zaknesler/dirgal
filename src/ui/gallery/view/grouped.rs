@@ -128,7 +128,7 @@ impl GroupedView {
         self.mode = mode;
         self.ordered_indices = (0..image_ids.len()).collect();
 
-        // Sorting is stable, so duplicates keep their existing order within a group
+        // Duplicates are already grouped and sorted, so they keep their order
         match mode {
             GroupMode::Directory => self.ordered_indices.sort_by(|a, b| {
                 match (library.get(&image_ids[*a]), library.get(&image_ids[*b])) {
@@ -136,11 +136,7 @@ impl GroupedView {
                     _ => std::cmp::Ordering::Equal,
                 }
             }),
-            GroupMode::Duplicates => self.ordered_indices.sort_by_key(|index| {
-                library
-                    .get(&image_ids[*index])
-                    .map(|entry| entry.content_hash.0)
-            }),
+            GroupMode::Duplicates => {}
         }
 
         self.rebuild_groups(image_ids, library);

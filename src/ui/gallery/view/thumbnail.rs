@@ -10,7 +10,7 @@ use crate::{
         gallery::{
             Gallery,
             constant::{COLOR_ACCENT, COLOR_ACCENT_HOVER, DEBUG},
-            view::GalleryViewEvent,
+            view::{GalleryViewEvent, SelectionMode},
         },
         model::{Page, ThumbnailFit},
     },
@@ -116,7 +116,7 @@ impl ImageTile {
                 cx.stop_propagation();
                 cx.emit(GalleryViewEvent::SelectImage {
                     id: click_id.clone(),
-                    mode: event.modifiers().into(),
+                    mode: SelectionMode::from_modifiers(event.modifiers(), cx),
                 });
             }))
             .on_double_click(cx.listener(move |_, _, _, cx| {

@@ -1,9 +1,8 @@
-// Copied from: https://github.com/zed-industries/zed/blob/6b733d105896a20924bd4aba87bd7baa20b62ac6/crates/gpui/examples/image_gallery.rs#L134
+// Adapted from: https://github.com/zed-industries/zed/blob/main/crates/gpui/examples/image_gallery.rs (SimpleLruCache)
 
-use futures::FutureExt;
 use gpui_kit::gpui::{
-    App, AppContext as _, Asset as _, AssetLogger, Context, ElementId, Entity, ImageAssetLoader,
-    ImageCache, ImageCacheProvider, Window, hash,
+    App, AppContext as _, Context, ElementId, Entity, ImageCache, ImageCacheItem,
+    ImageCacheProvider, Window, hash,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -47,7 +46,7 @@ pub struct SimpleLruCache {
     id: ElementId,
     max_items: usize,
     usages: Vec<u64>,
-    cache: HashMap<u64, gpui_kit::gpui::ImageCacheItem>,
+    cache: HashMap<u64, ImageCacheItem>,
 }
 
 impl SimpleLruCache {
@@ -58,7 +57,7 @@ impl SimpleLruCache {
             let id = id.clone();
             move |simple_cache, cx| {
                 tracing::debug!(cache = %id, "cache released");
-                for (_, mut item) in std::mem::take(&mut simple_cache.cache) {
+                for (_, item) in std::mem::take(&mut simple_cache.cache) {
                     if let Some(Ok(image)) = item.get() {
                         cx.drop_image(image, None);
                     }
@@ -100,16 +99,14 @@ impl ImageCache for SimpleLruCache {
 
             tracing::trace!(cache = %self.id, hash, size, "hit");
 
-            return item.get();
+            return item.use_image(window);
         }
 
         tracing::trace!(cache = %self.id, hash, size, "miss");
 
-        let fut = AssetLogger::<ImageAssetLoader>::load(resource.clone(), cx);
-        let task = cx.background_executor().spawn(fut).shared();
         if self.usages.len() == self.max_items {
             let oldest = self.usages.pop().unwrap();
-            let mut image = self
+            let image = self
                 .cache
                 .remove(&oldest)
                 .expect("cache and usages must be in sync");
@@ -120,24 +117,16 @@ impl ImageCache for SimpleLruCache {
                 cx.drop_image(image, Some(window));
             }
         }
-        self.cache
-            .insert(hash, gpui_kit::gpui::ImageCacheItem::Loading(task.clone()));
+        let item = ImageCacheItem::new(resource, cx);
+
+        // Subscribes the current view to be notified when loading completes
+        let result = item.use_image(window);
+
+        self.cache.insert(hash, item);
         self.usages.insert(0, hash);
 
         tracing::trace!(cache = %self.id, hash, size = self.cache.len(), "insert");
 
-        let entity = window.current_view();
-        window
-            .spawn(cx, {
-                async move |cx| {
-                    _ = task.await;
-                    cx.on_next_frame(move |_, cx| {
-                        cx.notify(entity);
-                    });
-                }
-            })
-            .detach();
-
-        None
+        result
     }
 }

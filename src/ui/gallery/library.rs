@@ -67,6 +67,20 @@ impl Library {
         self.images
             .sort_by(|a, b| crate::core::image::compare_key(a, b, sort));
 
+        // Regroup the flat duplicates list by content so the groups can be sorted again
+        let mut groups: HashMap<ContentHash, Vec<ImageEntry>> = HashMap::new();
+        for entry in std::mem::take(&mut self.duplicates) {
+            groups.entry(entry.content_hash).or_default().push(entry);
+        }
+        self.duplicates =
+            crate::core::image::sort_duplicate_groups(groups.into_values().collect(), sort);
+        self.duplicate_index = self
+            .duplicates
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.id.clone(), i))
+            .collect();
+
         self.image_index = self
             .images
             .iter()

@@ -1,4 +1,4 @@
-use super::{Direction, GalleryView, GalleryViewEvent, ScrollTarget};
+use super::{Direction, GalleryView, GalleryViewEvent, ScrollTarget, SelectionMode};
 use crate::{
     core::{hash::hash_path, image::ImageId},
     ui::gallery::{
@@ -116,7 +116,10 @@ impl Render for ListView {
                                         cx.stop_propagation();
                                         cx.emit(GalleryViewEvent::SelectImage {
                                             id: click_id.clone(),
-                                            mode: event.modifiers().into(),
+                                            mode: SelectionMode::from_modifiers(
+                                                event.modifiers(),
+                                                cx,
+                                            ),
                                         });
                                     }))
                                     .on_double_click(cx.listener(move |_, _, _, cx| {

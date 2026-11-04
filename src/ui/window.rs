@@ -3,7 +3,7 @@ use crate::ui::{
     state::{AppState, SharedAppState},
 };
 use gpui_kit::component::{Theme, ThemeMode};
-use gpui_kit::gpui::{App, AppContext as _, TitlebarOptions, WindowOptions, px, size};
+use gpui_kit::gpui::{App, TitlebarOptions, WindowOptions, px, size};
 
 pub fn create_window(state: AppState) {
     gpui_kit::application()
@@ -36,11 +36,8 @@ pub fn create_window(state: AppState) {
             let shared = SharedAppState::new(state, cx);
             cx.set_global(shared);
 
-            cx.open_window(options, move |window, cx| {
-                let view = Gallery::view(window, cx);
-                cx.new(|cx| gpui_kit::component::Root::new(view, window, cx))
-            })
-            .expect("failed to open window");
+            gpui_kit::open_window(options, cx, |window, cx| Gallery::view(window, cx))
+                .expect("failed to open window");
 
             cx.activate(true);
         });
