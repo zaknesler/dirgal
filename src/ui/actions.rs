@@ -27,6 +27,7 @@ actions!([
     JumpToTop,
     JumpToBottom,
     SelectAll,
+    SelectAllButFirstInGroups,
 ]);
 
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
@@ -127,6 +128,7 @@ pub fn register_actions(cx: &mut App) {
         ("secondary-up", actions::JumpToTop),
         ("secondary-down", actions::JumpToBottom),
         ("secondary-a", actions::SelectAll),
+        ("secondary-d", actions::SelectAllButFirstInGroups),
         ("shift-up", actions::ModifySelection::Up),
         ("shift-down", actions::ModifySelection::Down),
         ("shift-left", actions::ModifySelection::Left),

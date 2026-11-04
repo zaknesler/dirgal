@@ -333,6 +333,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::handle_left))
             .on_action(cx.listener(Self::handle_right))
             .on_action(cx.listener(Self::handle_select_all))
+            .on_action(cx.listener(Self::handle_select_all_but_first_in_groups))
             .on_action(cx.listener(Self::handle_modify_selection))
             .on_action(cx.listener(Self::handle_open_lightbox))
             .on_action(cx.listener(Self::handle_togle_view))

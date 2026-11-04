@@ -17,7 +17,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
 };
-use view::{GalleryView, GridView, GroupedView, ListView, ScrollTarget};
+use view::{GalleryView, GridView, GroupMode, GroupedView, ListView, ScrollTarget};
 
 pub mod constant;
 pub mod handler;
@@ -604,9 +604,14 @@ impl Gallery {
         let query = self.input.read(cx).value();
         let filtered = self.get_visible_image_ids(&query);
 
+        let mode = match self.page {
+            Page::Duplicates => GroupMode::Duplicates,
+            _ => GroupMode::Directory,
+        };
+
         self.filtered_images = filtered;
         self.grouped_view.update(cx, |view, cx| {
-            view.rebuild(&self.filtered_images, &self.library);
+            view.rebuild(&self.filtered_images, &self.library, mode);
             cx.notify();
         });
 

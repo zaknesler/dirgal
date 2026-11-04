@@ -164,6 +164,23 @@ impl Gallery {
         }
     }
 
+    /// Select everything but the first image in each group that has more than one image
+    pub fn handle_select_all_but_first_in_groups(
+        &mut self,
+        _: &actions::SelectAllButFirstInGroups,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let selected = self
+            .grouped_view
+            .read(cx)
+            .all_but_first_in_groups(&self.filtered_images);
+
+        self.selected_images = selected;
+        self.active_image = None;
+        cx.notify();
+    }
+
     pub fn handle_modify_selection(
         &mut self,
         action: &actions::ModifySelection,
