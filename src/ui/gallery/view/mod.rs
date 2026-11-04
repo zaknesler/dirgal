@@ -4,9 +4,9 @@ pub mod list;
 pub(crate) mod thumbnail;
 
 use crate::core::image::ImageId;
-use gpui::Modifiers;
+use gpui_kit::gpui::{App, Modifiers};
 pub use grid::GridView;
-pub use grouped::{GroupHash, GroupedView};
+pub use grouped::{GroupHash, GroupMode, GroupedView};
 pub use list::ListView;
 
 #[derive(Clone, Copy)]
@@ -37,11 +37,11 @@ pub enum SelectionMode {
     Extend,
 }
 
-impl From<Modifiers> for SelectionMode {
+impl SelectionMode {
     /// Convert click modifiers into a selection mode
-    fn from(modifiers: Modifiers) -> Self {
+    pub fn from_modifiers(modifiers: Modifiers, cx: &App) -> Self {
         // TODO: should toggling really need cmd/ctrl?
-        if modifiers.secondary() {
+        if modifiers.secondary(cx) {
             Self::Toggle
         } else if modifiers.shift {
             Self::Extend

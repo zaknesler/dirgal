@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use gpui::{AssetSource, Result, SharedString};
+use gpui_kit::gpui::{AssetSource, Result, SharedString};
 use std::borrow::Cow;
 
 pub mod icon;

@@ -1,7 +1,8 @@
 use crate::{
     core::{
-        image::{ImageEntry, ImageId},
+        image::{ContentHash, FoundFile, ImageEntry, ImageId},
         pipeline,
+        store::Store,
     },
     error::AppResult,
 };
@@ -10,15 +11,57 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanSource {
+    /// Restored from last scan cache
+    Cache,
+    /// Scanned directly from the filesystem
+    Disk,
+}
+
 #[derive(Debug, Clone)]
 pub struct ImageScanner {
     pub roots: Vec<PathBuf>,
     pub thumb_dir: PathBuf,
     pub images: Vec<ImageEntry>,
     pub bookmarks: Vec<u64>,
+    pub source: ScanSource,
 }
 
 impl ImageScanner {
+    /// Build an image scanner from the last complete listings for all requested roots
+    pub fn from_cache(roots: Vec<PathBuf>, thumb_dir: PathBuf) -> Option<Self> {
+        let store = Store::load();
+        let mut cached = store.cached_images(&roots)?;
+        cached.sort_by(|a, b| crate::core::path::compare_paths(&a.0, &b.0));
+
+        let images = cached
+            .into_iter()
+            .map(|(path, cached)| {
+                let found = FoundFile {
+                    path,
+                    bytes: cached.size,
+                    modified: cached.modified_time(),
+                    created: cached.created_time(),
+                };
+                ImageEntry::new(
+                    found,
+                    &thumb_dir,
+                    ContentHash(cached.hash),
+                    cached.dimensions,
+                )
+            })
+            .collect();
+
+        Some(Self {
+            roots,
+            thumb_dir,
+            images,
+            bookmarks: store.bookmarks,
+            source: ScanSource::Cache,
+        })
+    }
+
     /// Scan the given roots and build an image scanner with the initial image list
     pub fn scan(roots: Vec<PathBuf>, thumb_dir: PathBuf) -> AppResult<Self> {
         let discovered = Self::discover(&roots, &thumb_dir)?;
@@ -27,6 +70,7 @@ impl ImageScanner {
             thumb_dir,
             images: discovered.images,
             bookmarks: discovered.bookmarks,
+            source: ScanSource::Disk,
         })
     }
 
@@ -35,6 +79,7 @@ impl ImageScanner {
         let discovered = Self::discover(&self.roots, &self.thumb_dir)?;
         self.images = discovered.images;
         self.bookmarks = discovered.bookmarks;
+        self.source = ScanSource::Disk;
         Ok(())
     }
 
@@ -65,7 +110,7 @@ impl ImageScanner {
         roots: &[PathBuf],
         thumb_dir: &std::path::Path,
     ) -> AppResult<pipeline::DiscoveredImages> {
-        let files = pipeline::collect_files(roots)?;
-        pipeline::build_image_entries(files, thumb_dir)
+        let collected = pipeline::collect_files(roots)?;
+        pipeline::build_image_entries(collected, thumb_dir)
     }
 }

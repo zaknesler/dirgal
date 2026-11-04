@@ -8,11 +8,11 @@ use crate::{
         },
     },
 };
-use gpui::{
+use gpui_kit::component::{h_flex, scroll::Scrollbar};
+use gpui_kit::gpui::{
     Context, EventEmitter, Pixels, Render, ScrollStrategy, UniformListScrollHandle, WeakEntity,
     Window, div, prelude::*, px, uniform_list,
 };
-use gpui_component::{h_flex, scroll::Scrollbar};
 use std::ops::Range;
 
 pub struct GridView {

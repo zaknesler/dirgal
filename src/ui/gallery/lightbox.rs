@@ -10,18 +10,18 @@ use crate::core::{
 use crate::ui::actions;
 use crate::ui::gallery::Gallery;
 use crate::ui::{gallery::constant::*, model::*};
-use gpui::{
-    Bounds, ClickEvent, Context, DevicePixels, DispatchPhase, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, ScrollWheelEvent,
-    SharedString, Size, Window, canvas, div, img, point, prelude::*, px, size,
-};
-use gpui_component::{
+use gpui_kit::component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::ContextMenuExt,
     tag::Tag,
     v_flex,
+};
+use gpui_kit::gpui::{
+    Bounds, ClickEvent, Context, DevicePixels, DispatchPhase, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, ScrollEvent, SharedString,
+    Size, Window, canvas, div, img, point, prelude::*, px, size,
 };
 
 pub struct Lightbox {
@@ -303,14 +303,14 @@ impl Gallery {
     /// Pan around (or zoom) the open image
     fn handle_image_scroll_wheel(
         &mut self,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let delta = event.delta.pixel_delta(window.line_height());
 
         // Zoom when ctrl/cmd is pressed
-        if event.modifiers.secondary() {
+        if event.modifiers.secondary(cx) {
             let amount = f32::from(delta.y).abs() * ZOOM_PER_PIXEL;
             let factor = if delta.y > px(0.) {
                 1.0 + amount
@@ -354,8 +354,8 @@ impl Gallery {
             Button::new("prev-arrow")
                 .ghost()
                 .large()
-                .px_4()
-                .py_8()
+                .w(px(56.))
+                .h(px(88.))
                 .icon(IconAsset::ChevronLeft)
                 .on_click(cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
@@ -367,8 +367,8 @@ impl Gallery {
             Button::new("next-arrow")
                 .ghost()
                 .large()
-                .px_4()
-                .py_8()
+                .w(px(56.))
+                .h(px(88.))
                 .icon(IconAsset::ChevronRight)
                 .on_click(cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
@@ -454,7 +454,7 @@ impl Gallery {
 
                     // Now the click will bubble up to the lightbox's click handler and should close the modal
                 }))
-                .on_scroll_wheel(cx.listener(Self::handle_image_scroll_wheel))
+                .on_scroll(cx.listener(Self::handle_image_scroll_wheel))
                 .on_pinch(cx.listener(Self::handle_image_pinch))
                 .on_mouse_down(MouseButton::Left, cx.listener(Self::handle_mouse_down))
                 .on_mouse_down(MouseButton::Middle, cx.listener(Self::handle_mouse_down))
@@ -519,7 +519,7 @@ impl Gallery {
             .inset_0()
             .items_center()
             .justify_center()
-            .bg(gpui::rgba(COLOR_BACKDROP))
+            .bg(gpui_kit::gpui::rgba(COLOR_BACKDROP))
             .occlude()
             .on_click(cx.listener(|this, _, _, cx| {
                 cx.stop_propagation();
@@ -557,7 +557,7 @@ impl Gallery {
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_sm()
-                .text_overflow(gpui::TextOverflow::TruncateMiddle(
+                .text_overflow(gpui_kit::gpui::TextOverflow::TruncateMiddle(
                     SharedString::new_static(TRUNCATE_STR),
                 ))
                 .child(name)
@@ -617,7 +617,7 @@ impl Gallery {
                         .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                             cx.stop_propagation();
 
-                            if event.modifiers().secondary() {
+                            if event.modifiers().secondary(cx) {
                                 this.handle_delete_file(&actions::DeleteFile::Current, window, cx);
                             } else {
                                 this.delete_files(&[trash_path.to_owned()], cx);

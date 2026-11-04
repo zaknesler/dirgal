@@ -11,7 +11,7 @@ pub struct Args {
     #[clap(long, short)]
     pub config: Option<String>,
 
-    /// Clear caches image hashes (does not affect bookmarks)
+    /// Clear cached image metadata and last known paths (does not affect bookmarks)
     #[clap(long)]
     pub clear_cache: bool,
 

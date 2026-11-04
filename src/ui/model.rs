@@ -1,5 +1,5 @@
 use crate::assets::IconAsset;
-use gpui::ElementId;
+use gpui_kit::gpui::ElementId;
 use std::path::Path;
 use std::sync::Arc;
 

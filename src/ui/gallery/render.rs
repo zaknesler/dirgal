@@ -1,14 +1,16 @@
 use crate::ui::{gallery::Gallery, model::*, *};
 use crate::{assets::IconAsset, core::util};
-use gpui::{App, ClickEvent, Context, FocusHandle, Focusable, Window, div, prelude::*, px};
-use gpui_component::{
-    ActiveTheme, Icon, Root,
+use gpui_kit::component::{
+    ActiveTheme, Icon,
     button::{Button, ButtonVariants as _, Toggle, ToggleGroup, ToggleVariants},
     h_flex,
     input::Input,
     select::Select,
     tab::{Tab, TabBar},
     v_flex,
+};
+use gpui_kit::gpui::{
+    App, ClickEvent, Context, FocusHandle, Focusable, Window, div, prelude::*, px,
 };
 
 impl Gallery {
@@ -280,7 +282,7 @@ impl Gallery {
                                         |this, event: &ClickEvent, window, cx| {
                                             cx.stop_propagation();
 
-                                            if event.modifiers().secondary() {
+                                            if event.modifiers().secondary(cx) {
                                                 this.handle_delete_file(
                                                     &actions::DeleteFile::Current,
                                                     window,
@@ -318,10 +320,7 @@ impl Focusable for Gallery {
 }
 
 impl Render for Gallery {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let notif_layer = Root::render_notification_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
-
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context(super::CONTEXT_GALLERY)
             .track_focus(&self.focus_handle)
@@ -331,6 +330,7 @@ impl Render for Gallery {
             .on_action(cx.listener(Self::handle_left))
             .on_action(cx.listener(Self::handle_right))
             .on_action(cx.listener(Self::handle_select_all))
+            .on_action(cx.listener(Self::handle_select_all_but_first_in_groups))
             .on_action(cx.listener(Self::handle_modify_selection))
             .on_action(cx.listener(Self::handle_open_lightbox))
             .on_action(cx.listener(Self::handle_togle_view))
@@ -376,7 +376,5 @@ impl Render for Gallery {
                 el.child(self.render_lightbox(&id, cx))
             })
             .child(self.render_floating_actions(cx))
-            .children(notif_layer)
-            .children(dialog_layer)
     }
 }

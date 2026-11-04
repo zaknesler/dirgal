@@ -3,7 +3,7 @@ use crate::{
     assets::IconAsset,
     core::{
         hash::hash_path,
-        image::{ImageId, compare_parents},
+        image::{ContentHash, ImageId, compare_parents},
         path::group_segments,
         util,
     },
@@ -16,11 +16,7 @@ use crate::{
         library::Library,
     },
 };
-use gpui::{
-    AnyElement, Context, Entity, EventEmitter, ListAlignment, ListOffset, ListState, Pixels,
-    Render, WeakEntity, Window, div, prelude::*, px,
-};
-use gpui_component::{
+use gpui_kit::component::{
     ActiveTheme, Sizable as _, VirtualListScrollHandle,
     breadcrumb::Breadcrumb,
     button::{Button, ButtonVariants as _},
@@ -28,6 +24,10 @@ use gpui_component::{
     scroll::{ScrollableElement, ScrollbarAxis},
     tag::Tag,
     v_virtual_list,
+};
+use gpui_kit::gpui::{
+    AnyElement, Context, Entity, EventEmitter, ListAlignment, ListOffset, ListState, Pixels,
+    Render, WeakEntity, Window, div, prelude::*, px,
 };
 use std::{
     collections::HashSet,
@@ -38,6 +38,13 @@ use std::{
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct GroupHash(pub u64);
+
+/// What images are grouped by
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GroupMode {
+    Directory,
+    Duplicates,
+}
 
 #[derive(Clone, PartialEq)]
 pub enum Row {
@@ -66,6 +73,7 @@ pub struct GroupedView {
     ordered_indices: Vec<usize>,
     rows: Vec<Row>,
     groups: Vec<Group>,
+    mode: GroupMode,
     collapsed_groups: HashSet<GroupHash>,
     list_state: ListState,
     tile_size: f32,
@@ -88,6 +96,7 @@ impl GroupedView {
             ordered_indices: Vec::new(),
             rows: Vec::new(),
             groups: Vec::new(),
+            mode: GroupMode::Directory,
             collapsed_groups: HashSet::new(),
             list_state: ListState::new(0, ListAlignment::Top, px(GRID_OVERDRAW)).measure_all(),
             tile_size: GRID_TILE_MIN,
@@ -115,14 +124,21 @@ impl GroupedView {
     }
 
     /// Rebuild grouped ordering from the filtered images
-    pub fn rebuild(&mut self, image_ids: &[ImageId], library: &Library) {
+    pub fn rebuild(&mut self, image_ids: &[ImageId], library: &Library, mode: GroupMode) {
+        self.mode = mode;
         self.ordered_indices = (0..image_ids.len()).collect();
-        self.ordered_indices.sort_by(|a, b| {
-            match (library.get(&image_ids[*a]), library.get(&image_ids[*b])) {
-                (Some(a), Some(b)) => compare_parents(a, b),
-                _ => std::cmp::Ordering::Equal,
-            }
-        });
+
+        // Duplicates are already grouped and sorted, so they keep their order
+        match mode {
+            GroupMode::Directory => self.ordered_indices.sort_by(|a, b| {
+                match (library.get(&image_ids[*a]), library.get(&image_ids[*b])) {
+                    (Some(a), Some(b)) => compare_parents(a, b),
+                    _ => std::cmp::Ordering::Equal,
+                }
+            }),
+            GroupMode::Duplicates => {}
+        }
+
         self.rebuild_groups(image_ids, library);
         self.rebuild_rows();
     }
@@ -166,6 +182,16 @@ impl GroupedView {
             .find(|group| !self.collapsed_groups.contains(&group.hash))
             .and_then(|group| self.ordered_indices.get(group.range.start))
             .map(|index| image_ids[*index].clone())
+    }
+
+    /// Return every image but the first in each group with more than one image
+    pub fn all_but_first_in_groups(&self, image_ids: &[ImageId]) -> Vec<ImageId> {
+        self.groups
+            .iter()
+            .filter(|group| group.range.len() > 1)
+            .flat_map(|group| self.ordered_indices[group.range.start + 1..group.range.end].iter())
+            .map(|index| image_ids[*index].clone())
+            .collect()
     }
 
     /// Expand one group
@@ -222,24 +248,47 @@ impl GroupedView {
             .collect()
     }
 
-    /// Rebuild directory groups
+    /// Rebuild directory or duplicate groups
     fn rebuild_groups(&mut self, image_ids: &[ImageId], library: &Library) {
         self.groups.clear();
 
+        // Duplicates are matched by content, so track the previous hash since paths differ
+        let mut previous_content: Option<ContentHash> = None;
+
         for (position, index) in self.ordered_indices.iter().copied().enumerate() {
             let id = &image_ids[index];
-            let parent = library
-                .get(id)
-                .and_then(|entry| entry.id.path().parent())
-                .unwrap_or(Path::new(""));
+            let entry = library.get(id);
 
-            match self.groups.last_mut() {
-                Some(group) if group.path == parent => group.range.end = position + 1,
-                _ => self.groups.push(Group {
-                    hash: GroupHash(hash_path(parent)),
-                    path: parent.to_path_buf(),
-                    range: position..position + 1,
-                }),
+            match self.mode {
+                GroupMode::Directory => {
+                    let parent = entry
+                        .and_then(|entry| entry.id.path().parent())
+                        .unwrap_or(Path::new(""));
+
+                    match self.groups.last_mut() {
+                        Some(group) if group.path == parent => group.range.end = position + 1,
+                        _ => self.groups.push(Group {
+                            hash: GroupHash(hash_path(parent)),
+                            path: parent.to_path_buf(),
+                            range: position..position + 1,
+                        }),
+                    }
+                }
+                GroupMode::Duplicates => {
+                    let Some(entry) = entry else { continue };
+
+                    match self.groups.last_mut() {
+                        Some(group) if previous_content == Some(entry.content_hash) => {
+                            group.range.end = position + 1
+                        }
+                        _ => self.groups.push(Group {
+                            hash: GroupHash(entry.content_hash.0),
+                            path: entry.id.path().to_path_buf(),
+                            range: position..position + 1,
+                        }),
+                    }
+                    previous_content = Some(entry.content_hash);
+                }
             }
         }
     }
@@ -344,7 +393,7 @@ impl GroupedView {
                     .items_center()
                     .flex_none()
                     .text_sm()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .font_weight(gpui_kit::gpui::FontWeight::SEMIBOLD)
                     .child(Breadcrumb::new().children(segments)),
             )
             .child(
@@ -400,10 +449,10 @@ impl Render for GroupedView {
             .rows
             .iter()
             .map(|row| match row {
-                Row::Header(_) => gpui::Size::new(px(48.), px(48.)),
+                Row::Header(_) => gpui_kit::gpui::Size::new(px(48.), px(48.)),
                 Row::Tiles(_) => {
                     let size = self.tile_size + GRID_GAP;
-                    gpui::size(px(size), px(size))
+                    gpui_kit::gpui::size(px(size), px(size))
                 }
             })
             .collect::<Vec<_>>();

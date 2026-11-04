@@ -1,7 +1,7 @@
 use crate::core::path::compare_paths;
 use crate::error::AppResult;
 use crate::ui::model::{Sort, SortKey};
-use gpui::Img;
+use gpui_kit::gpui::Img;
 use humansize::{BINARY, FormatSizeOptions, format_size};
 use ignore::WalkBuilder;
 use std::collections::HashMap;
@@ -218,24 +218,29 @@ pub fn deduplicate_and_sort(
     let mut unique: Vec<ImageEntry> = Vec::new();
     let mut duplicate_groups: Vec<Vec<ImageEntry>> = Vec::new();
 
-    // Sort each group and collect unique images
-    for mut group in group.into_values() {
+    // Collect unique images and groups with more than one image
+    for group in group.into_values() {
         unique.push(group.last().expect("group should not be empty").clone());
 
         // Keep duplicate images sorted next to each other
         if group.len() > 1 {
-            group.sort_by(|a, b| compare_key(a, b, sort));
             duplicate_groups.push(group);
         }
     }
 
-    // Sort unique images and duplicate groups
     unique.sort_by(|a, b| compare_key(a, b, sort));
-    duplicate_groups.sort_by(|a, b| compare_key(&a[0], &b[0], sort));
 
-    let duplicates = duplicate_groups.into_iter().flatten().collect();
+    (unique, sort_duplicate_groups(duplicate_groups, sort))
+}
 
-    (unique, duplicates)
+/// Sort the images within each duplicate group and the groups themselves, then flatten
+pub fn sort_duplicate_groups(mut groups: Vec<Vec<ImageEntry>>, sort: Sort) -> Vec<ImageEntry> {
+    for group in &mut groups {
+        group.sort_by(|a, b| compare_key(a, b, sort));
+    }
+    groups.sort_by(|a, b| compare_key(&a[0], &b[0], sort));
+
+    groups.into_iter().flatten().collect()
 }
 
 /// Compare by parent directory alone so same directory images stay contiguous

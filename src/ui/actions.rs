@@ -1,5 +1,5 @@
 use crate::ui::{CONTEXT_GALLERY, CONTEXT_GALLERY_UNFOCUSED, actions};
-use gpui::{Action, App, KeyBinding, actions};
+use gpui_kit::gpui::{Action, App, KeyBinding, actions};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -27,6 +27,7 @@ actions!([
     JumpToTop,
     JumpToBottom,
     SelectAll,
+    SelectAllButFirstInGroups,
 ]);
 
 #[derive(Clone, PartialEq, Eq, Action, Deserialize, JsonSchema)]
@@ -87,12 +88,22 @@ pub fn register_actions(cx: &mut App) {
          };
     }
 
+    macro_rules! secondary {
+        ($key:literal) => {
+            if cfg!(target_os = "macos") {
+                concat!("cmd-", $key)
+            } else {
+                concat!("ctrl-", $key)
+            }
+        };
+    }
+
     cx.on_action(|_: &actions::Quit, cx| cx.quit());
 
     // Global
     bind_keys!(
         None,
-        ("secondary-q", actions::Quit),
+        (secondary!("q"), actions::Quit),
         ("ctrl-shift-w", actions::Quit),
         ("cmd-m", actions::Minimize)
     );
@@ -103,18 +114,18 @@ pub fn register_actions(cx: &mut App) {
         ("ctrl-tab", actions::NextPage),
         ("ctrl-shift-tab", actions::PrevPage),
         ("escape", actions::CloseLightbox),
-        ("secondary-k", actions::FocusSearch),
-        ("secondary-r", actions::Refresh),
-        ("secondary-0", actions::ApplyPreset(0)),
-        ("secondary-1", actions::ApplyPreset(1)),
-        ("secondary-2", actions::ApplyPreset(2)),
-        ("secondary-3", actions::ApplyPreset(3)),
-        ("secondary-4", actions::ApplyPreset(4)),
-        ("secondary-5", actions::ApplyPreset(5)),
-        ("secondary-6", actions::ApplyPreset(6)),
-        ("secondary-7", actions::ApplyPreset(7)),
-        ("secondary-8", actions::ApplyPreset(8)),
-        ("secondary-9", actions::ApplyPreset(9)),
+        (secondary!("k"), actions::FocusSearch),
+        (secondary!("r"), actions::Refresh),
+        (secondary!("0"), actions::ApplyPreset(0)),
+        (secondary!("1"), actions::ApplyPreset(1)),
+        (secondary!("2"), actions::ApplyPreset(2)),
+        (secondary!("3"), actions::ApplyPreset(3)),
+        (secondary!("4"), actions::ApplyPreset(4)),
+        (secondary!("5"), actions::ApplyPreset(5)),
+        (secondary!("6"), actions::ApplyPreset(6)),
+        (secondary!("7"), actions::ApplyPreset(7)),
+        (secondary!("8"), actions::ApplyPreset(8)),
+        (secondary!("9"), actions::ApplyPreset(9)),
     );
 
     // Gallery (unfocused)
@@ -124,9 +135,10 @@ pub fn register_actions(cx: &mut App) {
         ("down", actions::Down),
         ("left", actions::Left),
         ("right", actions::Right),
-        ("secondary-up", actions::JumpToTop),
-        ("secondary-down", actions::JumpToBottom),
-        ("secondary-a", actions::SelectAll),
+        (secondary!("up"), actions::JumpToTop),
+        (secondary!("down"), actions::JumpToBottom),
+        (secondary!("a"), actions::SelectAll),
+        (secondary!("d"), actions::SelectAllButFirstInGroups),
         ("shift-up", actions::ModifySelection::Up),
         ("shift-down", actions::ModifySelection::Down),
         ("shift-left", actions::ModifySelection::Left),
@@ -136,7 +148,7 @@ pub fn register_actions(cx: &mut App) {
         ("space", actions::OpenLightbox),
         ("enter", actions::OpenLightbox),
         ("backspace", actions::TrashFile::Current),
-        ("secondary-backspace", actions::DeleteFile::Current),
+        (secondary!("backspace"), actions::DeleteFile::Current),
         ("v", actions::ToggleView),
         ("g", actions::ToggleThumbnailFit),
         ("b", actions::Bookmark::Current),
