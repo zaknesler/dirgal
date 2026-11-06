@@ -12,6 +12,7 @@ use gpui_kit::component::{
 use gpui_kit::gpui::{
     App, ClickEvent, Context, FocusHandle, Focusable, Window, div, prelude::*, px,
 };
+use std::collections::HashSet;
 
 impl Gallery {
     /// Render the page navigation tabs

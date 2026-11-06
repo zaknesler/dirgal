@@ -66,6 +66,8 @@ pub struct ImageEntry {
     pub thumb_path: Arc<Path>,
     pub thumb_exists: bool,
     pub dimensions: Option<(u32, u32)>,
+    pub path_lower: Arc<str>,
+    pub path_date: Option<(u32, u32, u32)>,
 }
 
 pub struct FoundFile {
@@ -84,6 +86,8 @@ impl ImageEntry {
     ) -> Self {
         let thumb = thumb_dir.join(format!("{:016x}.png", content_hash.0));
         let thumb_exists = thumb.exists();
+        let path_lower: Arc<str> = Arc::from(file.path.to_string_lossy().to_lowercase());
+        let path_date = crate::core::path::extract_date_from_path(&file.path);
 
         Self {
             id: ImageId::new(file.path),
@@ -94,6 +98,8 @@ impl ImageEntry {
             thumb_path: Arc::from(thumb),
             thumb_exists,
             dimensions,
+            path_lower,
+            path_date,
         }
     }
 
@@ -304,8 +310,8 @@ fn compare_optional_field<T: Ord>(
 /// Compare by embedded path date, keeping dateless images at the end regardless of direction
 fn compare_date_in_path(a: &ImageEntry, b: &ImageEntry, ascending: bool) -> Ordering {
     compare_optional_field(
-        crate::core::path::extract_date_from_path(a.id.path()),
-        crate::core::path::extract_date_from_path(b.id.path()),
+        a.path_date,
+        b.path_date,
         ascending,
         a.id.path(),
         b.id.path(),

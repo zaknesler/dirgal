@@ -50,6 +50,7 @@ pub struct Gallery {
     grid_view: Entity<GridView>,
     grouped_view: Entity<GroupedView>,
     list_view: Entity<ListView>,
+    grouped_dirty: bool,
 
     // Thumbnails
     thumbs: HashMap<ContentHash, ThumbState>,
@@ -138,6 +139,7 @@ impl Gallery {
             grid_view,
             grouped_view,
             list_view,
+            grouped_dirty: true,
             active_image: None,
             selected_images: Vec::new(),
             is_refreshing: false,
@@ -281,61 +283,45 @@ impl Gallery {
 
     /// Image IDs for the current page in sort order filtered by a case insensitive path search
     fn get_visible_image_ids(&self, query: &str) -> Vec<ImageId> {
-        let candidates: Vec<ImageId> = match self.page {
-            Page::Gallery => self
-                .library
-                .images
-                .iter()
-                .map(|entry| entry.id.clone())
-                .collect(),
-            Page::Bookmarks => self
-                .library
-                .images
-                .iter()
-                .filter(|entry| self.library.bookmarks.contains(&entry.content_hash))
-                .map(|entry| entry.id.clone())
-                .collect(),
-            Page::Duplicates => self
-                .library
-                .duplicates
-                .iter()
-                .map(|entry| entry.id.clone())
-                .collect(),
+        let entries: &[ImageEntry] = match self.page {
+            Page::Duplicates => &self.library.duplicates,
+            Page::Gallery | Page::Bookmarks => &self.library.images,
         };
 
-        if query.is_empty() {
-            return candidates;
-        }
+        let bookmarked: Option<HashSet<ContentHash>> = (self.page == Page::Bookmarks)
+            .then(|| self.library.bookmarks.iter().copied().collect());
 
         let query = query.to_lowercase();
 
-        let all_keywords: HashSet<&str> = query.split_whitespace().collect();
-        let mut keywords_pos: HashSet<&str> = HashSet::new();
-        let mut keywords_neg: HashSet<&str> = HashSet::new();
-        for k in all_keywords {
+        let mut keywords_pos: Vec<&str> = Vec::new();
+        let mut keywords_neg: Vec<&str> = Vec::new();
+        for k in query.split_whitespace() {
             if k.starts_with('!') && k.len() > 1 {
-                keywords_neg.insert(k.trim_start_matches('!'));
+                keywords_neg.push(k.trim_start_matches('!'));
             } else if !k.starts_with('!') {
-                keywords_pos.insert(k);
+                keywords_pos.push(k);
             }
         }
+        keywords_pos.sort_unstable();
+        keywords_pos.dedup();
+        keywords_neg.sort_unstable();
+        keywords_neg.dedup();
 
-        let mut matches: Vec<ImageId> = Vec::new();
+        entries
+            .iter()
+            .filter(|entry| {
+                bookmarked
+                    .as_ref()
+                    .is_none_or(|set| set.contains(&entry.content_hash))
+            })
+            .filter(|entry| {
+                let path = &*entry.path_lower;
 
-        for id in candidates {
-            if let Some(image) = self.get_image_entry(&id) {
-                let path = image.id.path().to_string_lossy().to_lowercase();
-
-                let pos_ok = keywords_pos.iter().all(|k| path.contains(k));
-                let neg_ok = !keywords_neg.iter().any(|k| path.contains(k));
-
-                if pos_ok && neg_ok {
-                    matches.push(id);
-                }
-            }
-        }
-
-        matches
+                keywords_pos.iter().all(|k| path.contains(k))
+                    && !keywords_neg.iter().any(|k| path.contains(k))
+            })
+            .map(|entry| entry.id.clone())
+            .collect()
     }
 
     /// Index of an image within the current filtered set
@@ -602,20 +588,33 @@ impl Gallery {
     /// Rebuild filtered images and grouped state for the current page and query
     fn reflow(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value();
-        let filtered = self.get_visible_image_ids(&query);
+        self.filtered_images = self.get_visible_image_ids(&query);
+
+        // Only regroup while the grouped view is shown
+        self.grouped_dirty = true;
+        if self.settings.view == View::Grouped {
+            self.sync_grouped_view(cx);
+        }
+
+        cx.notify();
+    }
+
+    /// Rebuild the grouped view from the filtered images if it is out of date
+    fn sync_grouped_view(&mut self, cx: &mut Context<Self>) {
+        if !self.grouped_dirty {
+            return;
+        }
 
         let mode = match self.page {
             Page::Duplicates => GroupMode::Duplicates,
             _ => GroupMode::Directory,
         };
 
-        self.filtered_images = filtered;
         self.grouped_view.update(cx, |view, cx| {
             view.rebuild(&self.filtered_images, &self.library, mode);
             cx.notify();
         });
-
-        cx.notify();
+        self.grouped_dirty = false;
     }
 
     /// Cancel all grid thumbnail generation
@@ -787,17 +786,17 @@ impl Gallery {
             return;
         }
 
-        let all_bookmarked = content_hashes
-            .iter()
-            .all(|hash| self.library.bookmarks.contains(hash));
+        let mut bookmarked: HashSet<ContentHash> = self.library.bookmarks.iter().copied().collect();
+        let all_bookmarked = content_hashes.iter().all(|hash| bookmarked.contains(hash));
 
         if all_bookmarked {
+            let selected: HashSet<ContentHash> = content_hashes.into_iter().collect();
             self.library
                 .bookmarks
-                .retain(|hash| !content_hashes.contains(hash));
+                .retain(|hash| !selected.contains(hash));
         } else {
             for hash in content_hashes {
-                if !self.library.bookmarks.contains(&hash) {
+                if bookmarked.insert(hash) {
                     self.library.bookmarks.push(hash);
                 }
             }

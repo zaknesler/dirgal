@@ -171,6 +171,9 @@ impl Gallery {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The grouped view is only rebuilt while shown, so catch it up first
+        self.sync_grouped_view(cx);
+
         let selected = self
             .grouped_view
             .read(cx)
