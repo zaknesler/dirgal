@@ -208,10 +208,10 @@ impl Gallery {
         let should_hide = self.selected_images.is_empty() || self.lightbox.is_some();
         let num_selected = self.selected_images.len();
         let selected_hashes = self.selected_content_hashes();
-        let all_bookmarked = !selected_hashes.is_empty()
-            && selected_hashes
-                .iter()
-                .all(|hash| self.library.bookmarks.contains(hash));
+        let all_bookmarked = !selected_hashes.is_empty() && {
+            let bookmarked: HashSet<_> = self.library.bookmarks.iter().collect();
+            selected_hashes.iter().all(|hash| bookmarked.contains(hash))
+        };
         let selection_label = format!(
             "{} {} selected",
             num_selected,
