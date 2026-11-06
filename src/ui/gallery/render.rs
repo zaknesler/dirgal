@@ -1,7 +1,7 @@
 use crate::ui::{gallery::Gallery, model::*, *};
 use crate::{assets::IconAsset, core::util};
 use gpui_kit::component::{
-    ActiveTheme, Icon,
+    ActiveTheme, Icon, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _, Toggle, ToggleGroup, ToggleVariants},
     h_flex,
     input::Input,
@@ -71,7 +71,21 @@ impl Gallery {
                         .cleanable(true)
                         .flex_1()
                         .min_w_0()
-                        .max_w(px(400.)),
+                        .max_w(px(400.))
+                        .when(self.page == Page::Duplicates, |input| {
+                            input.suffix(
+                                Button::new("match-duplicate-groups")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconAsset::Copy)
+                                    .tooltip("Show every related duplicate for a given search")
+                                    .selected(self.match_duplicate_groups)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.toggle_match_duplicate_groups(cx);
+                                    })),
+                            )
+                        }),
                 )
                 .child(
                     Button::new("refresh")

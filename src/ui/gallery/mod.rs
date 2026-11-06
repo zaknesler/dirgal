@@ -38,6 +38,7 @@ pub struct Gallery {
     lightbox: Option<Lightbox>,
     settings: Settings,
     sort_select: Entity<SelectState<Vec<String>>>,
+    match_duplicate_groups: bool,
 
     // Data
     library: Library,
@@ -134,6 +135,7 @@ impl Gallery {
             lightbox: None,
             settings,
             sort_select,
+            match_duplicate_groups: false,
             library: Library::empty(),
             filtered_images: Vec::new(),
             grid_view,
@@ -281,6 +283,13 @@ impl Gallery {
         );
     }
 
+    /// Toggle showing every copy in a duplicate group when any copy matches the search
+    fn toggle_match_duplicate_groups(&mut self, cx: &mut Context<Self>) {
+        self.match_duplicate_groups = !self.match_duplicate_groups;
+        self.clear_selection(cx);
+        self.reflow(cx);
+    }
+
     /// Image IDs for the current page in sort order filtered by a case insensitive path search
     fn get_visible_image_ids(&self, query: &str) -> Vec<ImageId> {
         let entries: &[ImageEntry] = match self.page {
@@ -307,6 +316,23 @@ impl Gallery {
         keywords_neg.sort_unstable();
         keywords_neg.dedup();
 
+        let matches = |entry: &ImageEntry| {
+            let path = entry.path_lower.as_ref();
+
+            keywords_pos.iter().all(|k| path.contains(k))
+                && !keywords_neg.iter().any(|k| path.contains(k))
+        };
+
+        // Content hashes of duplicates matching the search, so their other copies can be kept too
+        let matched_groups: Option<HashSet<ContentHash>> =
+            (self.match_duplicate_groups && self.page == Page::Duplicates).then(|| {
+                entries
+                    .iter()
+                    .filter(|entry| matches(entry))
+                    .map(|entry| entry.content_hash)
+                    .collect()
+            });
+
         entries
             .iter()
             .filter(|entry| {
@@ -315,10 +341,10 @@ impl Gallery {
                     .is_none_or(|set| set.contains(&entry.content_hash))
             })
             .filter(|entry| {
-                let path = &*entry.path_lower;
-
-                keywords_pos.iter().all(|k| path.contains(k))
-                    && !keywords_neg.iter().any(|k| path.contains(k))
+                matches(entry)
+                    || matched_groups
+                        .as_ref()
+                        .is_some_and(|set| set.contains(&entry.content_hash))
             })
             .map(|entry| entry.id.clone())
             .collect()
