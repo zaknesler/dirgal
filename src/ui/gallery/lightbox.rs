@@ -534,7 +534,10 @@ impl Gallery {
     fn render_info_bar(&self, id: &ImageId, cx: &mut Context<Self>) -> impl IntoElement {
         let entry = self.get_image_entry(id).expect("image should exist");
 
-        let position = self.get_visible_position(id).map(|p| p + 1).unwrap_or(0);
+        let position = self
+            .get_display_position(id, cx)
+            .map(|p| p + 1)
+            .unwrap_or(0);
         let counter = format!(
             "{} / {}",
             util::format_num(position),

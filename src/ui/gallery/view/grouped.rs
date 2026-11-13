@@ -520,6 +520,23 @@ impl GalleryView for GroupedView {
         visible.get(next).map(|index| image_ids[*index].clone())
     }
 
+    /// Find the image `delta` places from `current` in grouped order, wrapping at the ends
+    fn step(&self, image_ids: &[ImageId], current: &ImageId, delta: isize) -> Option<ImageId> {
+        if self.ordered_indices.is_empty() {
+            return None;
+        }
+
+        let pos = self.image_position(image_ids, current).unwrap_or(0) as isize;
+        let next = (pos + delta).rem_euclid(self.ordered_indices.len() as isize) as usize;
+
+        Some(image_ids[self.ordered_indices[next]].clone())
+    }
+
+    /// Index of an image in grouped order
+    fn position(&self, image_ids: &[ImageId], id: &ImageId) -> Option<usize> {
+        self.image_position(image_ids, id)
+    }
+
     /// Scroll the grouped list to a target
     fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) -> bool {
         match target {

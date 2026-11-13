@@ -60,6 +60,23 @@ pub trait GalleryView {
         direction: Direction,
     ) -> Option<ImageId>;
 
+    /// Find the image `delta` places from `current` in display order, wrapping at the ends
+    fn step(&self, image_ids: &[ImageId], current: &ImageId, delta: isize) -> Option<ImageId> {
+        if image_ids.is_empty() {
+            return None;
+        }
+
+        let pos = self.position(image_ids, current).unwrap_or(0) as isize;
+        let next = (pos + delta).rem_euclid(image_ids.len() as isize) as usize;
+
+        image_ids.get(next).cloned()
+    }
+
+    /// Index of an image in display order
+    fn position(&self, image_ids: &[ImageId], id: &ImageId) -> Option<usize> {
+        image_ids.iter().position(|candidate| candidate == id)
+    }
+
     /// Scroll to the requested target
     fn scroll_to(&mut self, image_ids: &[ImageId], target: ScrollTarget) -> bool;
 

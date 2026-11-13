@@ -3,6 +3,7 @@ use crate::core::{
     image::{ContentHash, ImageEntry, ImageId, SMALL_FILE_BYTES},
     scan::ScanSource,
     store::Store,
+    util,
 };
 use crate::ui::{model::*, *};
 use gpui_kit::component::{IndexPath, input::InputState, select::SelectState};
@@ -301,30 +302,10 @@ impl Gallery {
             .then(|| self.library.bookmarks.iter().copied().collect());
 
         let query = query.to_lowercase();
-
-        let mut keywords_pos: Vec<&str> = Vec::new();
-        let mut keywords_neg: Vec<&str> = Vec::new();
-        for k in query.split_whitespace() {
-            if k.starts_with('!') && k.len() > 1 {
-                keywords_neg.push(k.trim_start_matches('!'));
-            } else if !k.starts_with('!') {
-                keywords_pos.push(k);
-            }
-        }
-        keywords_pos.sort_unstable();
-        keywords_pos.dedup();
-        keywords_neg.sort_unstable();
-        keywords_neg.dedup();
-
-        let matches = |entry: &ImageEntry| {
-            let path = entry.path_lower.as_ref();
-
-            keywords_pos.iter().all(|k| path.contains(k))
-                && !keywords_neg.iter().any(|k| path.contains(k))
-        };
+        let (required, excluded) = util::parse_search(&query);
 
         let matched_groups = (self.match_duplicate_groups && self.page == Page::Duplicates)
-            .then(|| Self::matching_duplicate_groups(entries, &keywords_pos, &keywords_neg));
+            .then(|| Self::matching_duplicate_groups(entries, &required, &excluded));
 
         entries
             .iter()
@@ -335,33 +316,33 @@ impl Gallery {
             })
             .filter(|entry| match &matched_groups {
                 Some(groups) => groups.contains(&entry.content_hash),
-                None => matches(entry),
+                None => util::matches_search(&entry.path_lower, &required, &excluded),
             })
             .map(|entry| entry.id.clone())
             .collect()
     }
 
-    /// Content hashes of duplicate groups where every positive keyword is found in some copy's
-    /// path and no copy's path contains a negative keyword
+    /// Content hashes of duplicate groups where every required term is found in some copy's
+    /// path and no copy's path contains an excluded keyword
     fn matching_duplicate_groups(
         entries: &[ImageEntry],
-        keywords_pos: &[&str],
-        keywords_neg: &[&str],
+        required: &[Vec<&str>],
+        excluded: &[&str],
     ) -> HashSet<ContentHash> {
         let mut groups: HashSet<ContentHash> =
             entries.iter().map(|entry| entry.content_hash).collect();
 
-        for keyword in keywords_pos {
-            let with_keyword: HashSet<ContentHash> = entries
+        for alternatives in required {
+            let with_term: HashSet<ContentHash> = entries
                 .iter()
-                .filter(|entry| entry.path_lower.contains(keyword))
+                .filter(|entry| alternatives.iter().any(|k| entry.path_lower.contains(k)))
                 .map(|entry| entry.content_hash)
                 .collect();
-            groups.retain(|hash| with_keyword.contains(hash));
+            groups.retain(|hash| with_term.contains(hash));
         }
 
         for entry in entries {
-            if keywords_neg.iter().any(|k| entry.path_lower.contains(k)) {
+            if excluded.iter().any(|k| entry.path_lower.contains(k)) {
                 groups.remove(&entry.content_hash);
             }
         }
@@ -372,6 +353,11 @@ impl Gallery {
     /// Index of an image within the current filtered set
     fn get_visible_position(&self, id: &ImageId) -> Option<usize> {
         self.filtered_images.iter().position(|item| item == id)
+    }
+
+    /// Index of an image in the order the current view displays it
+    fn get_display_position(&self, id: &ImageId, cx: &App) -> Option<usize> {
+        self.current_view(cx).position(&self.filtered_images, id)
     }
 
     /// Look up an image entry by file identity
@@ -763,23 +749,19 @@ impl Gallery {
         cx.notify();
     }
 
-    /// Move the lightbox by delta within the filtered set, wrapping at the ends
+    /// Move the lightbox by delta in the current view's order, wrapping at the ends
     fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
-        if self.filtered_images.is_empty() {
-            return;
-        }
         let Some(current) = self.lightbox_image_id().cloned() else {
             return;
         };
 
-        let pos = self.get_visible_position(&current).unwrap_or(0) as isize;
-        let new_pos = pos + delta;
+        let next = self
+            .current_view(cx)
+            .step(&self.filtered_images, &current, delta);
 
-        let len = self.filtered_images.len();
-        let new_pos_index = new_pos.rem_euclid(len as isize) as usize;
-        let next = self.filtered_images[new_pos_index].clone();
-
-        self.open_lightbox(&next, cx);
+        if let Some(next) = next {
+            self.open_lightbox(&next, cx);
+        }
     }
 
     /// Select the next image in the given direction

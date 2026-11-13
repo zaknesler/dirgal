@@ -42,3 +42,41 @@ pub fn reveal_in_file_manager(path: &Path) {
 pub fn format_num(n: usize) -> String {
     n.to_formatted_string(&Locale::en)
 }
+
+/// Parses a search query into required terms (`a|b` is OR) and excluded `!` keywords
+pub fn parse_search(query: &str) -> (Vec<Vec<&str>>, Vec<&str>) {
+    let mut required = Vec::new();
+    let mut excluded = Vec::new();
+
+    for word in query.split_whitespace() {
+        let (negated, word) = match word.strip_prefix('!') {
+            Some(rest) => (true, rest),
+            None => (false, word),
+        };
+        let mut alternatives: Vec<&str> = word.split('|').filter(|s| !s.is_empty()).collect();
+        alternatives.sort_unstable();
+        alternatives.dedup();
+
+        if negated {
+            excluded.extend(alternatives);
+        } else if !alternatives.is_empty() {
+            required.push(alternatives);
+        }
+    }
+
+    required.sort_unstable();
+    required.dedup();
+
+    excluded.sort_unstable();
+    excluded.dedup();
+
+    (required, excluded)
+}
+
+/// Checks text against the output of `parse_search`
+pub fn matches_search(text: &str, required: &[Vec<&str>], excluded: &[&str]) -> bool {
+    required
+        .iter()
+        .all(|alternatives| alternatives.iter().any(|k| text.contains(k)))
+        && !excluded.iter().any(|k| text.contains(k))
+}
