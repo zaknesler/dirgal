@@ -283,7 +283,7 @@ impl Gallery {
         );
     }
 
-    /// Toggle showing every copy in a duplicate group when any copy matches the search
+    /// Toggle matching the search against whole duplicate groups instead of single files
     fn toggle_match_duplicate_groups(&mut self, cx: &mut Context<Self>) {
         self.match_duplicate_groups = !self.match_duplicate_groups;
         self.clear_selection(cx);
@@ -323,15 +323,8 @@ impl Gallery {
                 && !keywords_neg.iter().any(|k| path.contains(k))
         };
 
-        // Content hashes of duplicates matching the search, so their other copies can be kept too
-        let matched_groups: Option<HashSet<ContentHash>> =
-            (self.match_duplicate_groups && self.page == Page::Duplicates).then(|| {
-                entries
-                    .iter()
-                    .filter(|entry| matches(entry))
-                    .map(|entry| entry.content_hash)
-                    .collect()
-            });
+        let matched_groups = (self.match_duplicate_groups && self.page == Page::Duplicates)
+            .then(|| Self::matching_duplicate_groups(entries, &keywords_pos, &keywords_neg));
 
         entries
             .iter()
@@ -340,14 +333,40 @@ impl Gallery {
                     .as_ref()
                     .is_none_or(|set| set.contains(&entry.content_hash))
             })
-            .filter(|entry| {
-                matches(entry)
-                    || matched_groups
-                        .as_ref()
-                        .is_some_and(|set| set.contains(&entry.content_hash))
+            .filter(|entry| match &matched_groups {
+                Some(groups) => groups.contains(&entry.content_hash),
+                None => matches(entry),
             })
             .map(|entry| entry.id.clone())
             .collect()
+    }
+
+    /// Content hashes of duplicate groups where every positive keyword is found in some copy's
+    /// path and no copy's path contains a negative keyword
+    fn matching_duplicate_groups(
+        entries: &[ImageEntry],
+        keywords_pos: &[&str],
+        keywords_neg: &[&str],
+    ) -> HashSet<ContentHash> {
+        let mut groups: HashSet<ContentHash> =
+            entries.iter().map(|entry| entry.content_hash).collect();
+
+        for keyword in keywords_pos {
+            let with_keyword: HashSet<ContentHash> = entries
+                .iter()
+                .filter(|entry| entry.path_lower.contains(keyword))
+                .map(|entry| entry.content_hash)
+                .collect();
+            groups.retain(|hash| with_keyword.contains(hash));
+        }
+
+        for entry in entries {
+            if keywords_neg.iter().any(|k| entry.path_lower.contains(k)) {
+                groups.remove(&entry.content_hash);
+            }
+        }
+
+        groups
     }
 
     /// Index of an image within the current filtered set
